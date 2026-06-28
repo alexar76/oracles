@@ -1,0 +1,616 @@
+<meta charset="utf-8">
+<title>LANDAUER — thermodynamic floor of a computation</title>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0a0f16; --line:#101826;
+    --emerald:#1fff9f; --cyan:#22d3ee; --red:#ff2d4a; --amber:#ffb24a;
+    --ink:#cfe9e0; --dim:#5f7a78; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 48px}
+  .head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .logo{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.32em;
+    color:var(--amber);text-shadow:0 0 18px #ffb24a88}
+  h1{font-size:25px;font-weight:600;margin:6px 0 2px;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:14px;max-width:700px;line-height:1.6;margin:0 0 18px}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;background:#04060a;overflow:hidden}
+  canvas{display:block;width:100%}
+  #furnace{height:480px}
+  .badge{position:absolute;top:12px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:#080d13cc;backdrop-filter:blur(3px);z-index:2}
+  #status{left:12px;color:var(--amber);transition:color .3s,border-color .3s}
+  #status.hot{color:#ff7a3a;border-color:#ff7a3a55;text-shadow:0 0 16px #ff7a3a99}
+  #status.cool{color:var(--cyan);border-color:#22d3ee66;text-shadow:0 0 16px #22d3ee99}
+  #legend{right:12px;color:var(--dim);display:flex;gap:12px;align-items:center}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+  .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 2px 0}
+  button{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink);
+    background:#0c1420;border:1px solid var(--line);border-radius:9px;padding:9px 14px;cursor:pointer;transition:.15s}
+  button:hover{border-color:#ffb24a55;color:#fff}
+  button.primary{color:var(--amber);border-color:#ffb24a55}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent}
+  .seg button.on{background:#2a1605;color:var(--amber)}
+  .seg button.on.rev{background:#06222a;color:var(--cyan)}
+  .slider{flex:1;min-width:200px;display:flex;align-items:center;gap:12px}
+  input[type=range]{flex:1;accent-color:var(--amber)}
+  .read{font-family:var(--mono);font-size:13px;color:#fff;min-width:64px}
+  .read small{color:var(--dim)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .stat{border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:12px 14px}
+  .stat .k{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .stat .v{font-family:var(--mono);font-size:21px;margin-top:5px;color:#fff}
+  .stat .v.hot{color:var(--amber)}
+  .stat .v.cool{color:var(--cyan)}
+  #curve{height:200px}
+  .foot{margin-top:22px;color:var(--dim);font-size:13px;line-height:1.7;max-width:780px}
+  .foot b{color:var(--ink);font-weight:600}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--amber)}
+  @media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <span class="logo">LANDAUER</span>
+    <span class="tag" style="color:var(--cyan)">AIMarket oracle family · physics: Landauer's principle</span>
+  </div>
+  <h1>The heat a computation can never not make — and the version that runs cold</h1>
+  <p class="sub">Erasing one bit of information costs at least <b style="color:var(--amber)">kT·ln2 ≈ 2.85×10⁻²¹ J</b> of heat
+    dumped to the environment (300 K). This furnace counts every <b style="color:var(--red)">logically irreversible</b>
+    bit-erasure in a real op-DAG — AND/OR/erase destroy information; NOT/COPY/Toffoli/Fredkin do not — and renders the
+    energy floor as a billowing thermal plume. Real gate accounting, no mocks. Then it reroutes the whole circuit through
+    <b style="color:var(--cyan)">reversible</b> gates and watches the heat collapse.</p>
+
+  <div class="stage">
+    <div id="status" class="badge">furnace cold — booting</div>
+    <div id="legend" class="badge">
+      <span><span class="dot" style="background:#ff7a3a"></span>irreversible erasure</span>
+      <span><span class="dot" style="background:#22d3ee"></span>reversible</span>
+    </div>
+    <canvas id="furnace"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="play" class="primary">▶ replay run</button>
+    <div class="seg" id="mode">
+      <button data-m="lossy" class="on">lossy circuit</button>
+      <button data-m="rev">reversible</button>
+    </div>
+    <div class="slider">
+      <input type="range" id="t" min="0" max="1000" value="0" />
+      <span class="read" id="tread">t <small>0.00</small></span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">irreversible bits erased</div><div class="v hot" id="sbits">0</div></div>
+    <div class="stat"><div class="k">energy floor</div><div class="v hot" id="sE">0 J</div></div>
+    <div class="stat"><div class="k">reversible floor</div><div class="v cool" id="sRev">0 J</div></div>
+    <div class="stat"><div class="k">thermo efficiency</div><div class="v" id="sEff">—</div></div>
+  </div>
+
+  <div class="stage" style="margin-top:14px">
+    <div class="badge" style="left:12px;color:var(--dim)">running Landauer floor E(t) &nbsp;·&nbsp; <span style="color:var(--cyan)">reversible bound</span></div>
+    <canvas id="curve"></canvas>
+  </div>
+
+  <p class="foot">
+    <b>What an agent buys.</b> LANDAUER answers a question no FLOPS counter can: not <i>how fast</i> a computation runs, but
+    <i>how much heat it is thermodynamically forced to make</i> — the floor every cooling bill and carbon estimate sits on.
+    ARGUS-3 calls it before committing a long multi-step job to a provider: if the lossy floor towers over the
+    <span class="tag" style="color:var(--cyan)">reversible bound</span>, it knows the circuit is wasting information (and energy)
+    it never had to, and can demand a reversible re-synthesis or price the waste into escrow. <b>Verifiable:</b> the op-DAG is
+    hashed to a <span class="tag">circuit_commitment</span>, gate semantics are fixed, and any verifier replays the erasure
+    count to reproduce the joule floor exactly. The floor is proven by physics, not asserted.
+  </p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---- physics constants ----
+  const KB = 1.380649e-23;     // Boltzmann, J/K
+  const T  = 300;              // K
+  const LN2 = Math.log(2);
+  const QUANTUM = KB*T*LN2;    // ~2.872e-21 J per erased bit
+
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+  // ---- gate model ----
+  // ins = #input bits, outs = #output bits, erased = irreversible bits destroyed.
+  // Reversible gates have erased=0 (information preserved / permuted).
+  const GATES = {
+    AND:    {ins:2, outs:1, erased:1, rev:false, lbl:'AND'},   // 2->1: one bit destroyed
+    OR:     {ins:2, outs:1, erased:1, rev:false, lbl:'OR'},
+    XOR:    {ins:2, outs:1, erased:1, rev:false, lbl:'XOR'},
+    ERASE:  {ins:1, outs:0, erased:1, rev:false, lbl:'ERA'},   // reset-to-0: 1 bit destroyed
+    NOT:    {ins:1, outs:1, erased:0, rev:true,  lbl:'NOT'},    // permutation, reversible
+    COPY:   {ins:1, outs:2, erased:0, rev:true,  lbl:'CPY'},    // fan-out, reversible
+    TOFF:   {ins:3, outs:3, erased:0, rev:true,  lbl:'TOF'},    // Toffoli, universal reversible
+    FRED:   {ins:3, outs:3, erased:0, rev:true,  lbl:'FRE'},    // Fredkin
+  };
+  // reversible substitute for each lossy gate (the re-synthesis ARGUS would demand)
+  const REV_SUB = {AND:'TOFF', OR:'TOFF', XOR:'FRED', ERASE:'FRED'};
+
+  let DAG, N, COLS, rng, seedN=20260622;
+
+  // Build a real layered op-DAG. Each node is one gate; wires connect cols left->right.
+  function buildDAG(seed){
+    rng = mulberry32(seed);
+    const nCols = 6;
+    const cols = [];
+    let id = 0;
+    for(let c=0;c<nCols;c++){
+      const h = 4 + Math.floor(rng()*3);            // 4..6 gates this column
+      const col = [];
+      for(let r=0;r<h;r++){
+        // bias toward lossy gates so the furnace genuinely roars; mix in reversible ones too
+        let g;
+        const u = rng();
+        if(c===0)                 g = u<0.65 ? pick(['AND','OR','XOR']) : pick(['COPY','NOT']);
+        else if(c===nCols-1)      g = u<0.5  ? pick(['AND','OR','ERASE']) : pick(['XOR','TOFF']);
+        else                      g = u<0.62 ? pick(['AND','OR','XOR','ERASE']) : pick(['NOT','COPY','TOFF','FRED']);
+        col.push({id:id++, c, r, g, x:0, y:0});
+      }
+      cols.push(col);
+    }
+    // wire each node to 1-2 sources in the previous column (deterministic from rng)
+    const wires=[];
+    for(let c=1;c<nCols;c++){
+      for(const node of cols[c]){
+        const src = cols[c-1];
+        const k = 1 + (rng()<0.5?1:0);
+        const used=new Set();
+        for(let w=0;w<k;w++){
+          let s = src[Math.floor(rng()*src.length)];
+          let guard=0;
+          while(used.has(s.id) && guard++<5) s = src[Math.floor(rng()*src.length)];
+          used.add(s.id);
+          wires.push({from:s.id, to:node.id, c:c-1});
+        }
+      }
+    }
+    const nodes = cols.flat();
+    N = nodes.length;
+    COLS = cols;
+    DAG = {cols, nodes, wires, nCols};
+    layout();
+
+    // ---- the REAL computation: irreversible-bit accounting in topological (column) order ----
+    // step index = column index; we accumulate erasures column by column for both modes.
+    const lossy = accumulate('lossy');
+    const rev   = accumulate('rev');
+    DAG.acc = {lossy, rev};
+    function pick(arr){return arr[Math.floor(rng()*arr.length)];}
+  }
+  function pick(arr){return arr[Math.floor(rng()*arr.length)];}
+
+  // Walk columns; per column sum erased bits. Returns cumulative erasure & joules per column boundary.
+  function accumulate(mode){
+    const perCol=[], cumBits=[], cumJ=[];
+    let total=0;
+    for(let c=0;c<DAG.nCols;c++){
+      let e=0;
+      for(const node of DAG.cols[c]){
+        const def = gateDef(node.g, mode);
+        e += def.erased;
+      }
+      total += e;
+      perCol.push(e);
+      cumBits.push(total);
+      cumJ.push(total*QUANTUM);
+    }
+    return {perCol, cumBits, cumJ, totalBits:total, totalJ:total*QUANTUM};
+  }
+  function gateDef(g, mode){
+    if(mode==='rev'){
+      const sub = REV_SUB[g];
+      if(sub) return GATES[sub];   // lossy gate replaced by reversible equivalent (erased=0)
+      return GATES[g];
+    }
+    return GATES[g];
+  }
+
+  // ---- canvas ----
+  const fC=document.getElementById('furnace'),fx=fC.getContext('2d');
+  const cC=document.getElementById('curve'),cx=cC.getContext('2d');
+  let FW,FH,CW,CH;
+  const M={l:70,r:60,t:140,b:50}; // furnace interior margins; plume lives above M.t
+  function dpr(){return Math.min(2,window.devicePixelRatio||1);}
+  function fit(){const d=dpr();
+    let r=fC.getBoundingClientRect();FW=r.width;FH=r.height;fC.width=FW*d;fC.height=FH*d;fx.setTransform(d,0,0,d,0,0);
+    r=cC.getBoundingClientRect();CW=r.width;CH=r.height;cC.width=CW*d;cC.height=CH*d;cx.setTransform(d,0,0,d,0,0);}
+  function layout(){
+    const innerW=FW-M.l-M.r, innerH=FH-M.t-M.b;
+    for(let c=0;c<DAG.nCols;c++){
+      const col=DAG.cols[c];
+      const cxp = M.l + (DAG.nCols<=1?0.5:c/(DAG.nCols-1))*innerW;
+      for(let r=0;r<col.length;r++){
+        const node=col[r];
+        node.x=cxp;
+        node.y=M.t + (col.length<=1?0.5:(r+0.5)/col.length)*innerH;
+      }
+    }
+    DAG.nodeById={};DAG.nodes.forEach(n=>DAG.nodeById[n.id]=n);
+  }
+
+  // ---- effects ----
+  // heat quanta: each rises from a flashing irreversible gate into the plume reservoir
+  let quanta=[], flames=[], rings=[], flash=0, shake=0;
+  // plume is a coarse grid of "heat density" cells that advect upward & diffuse
+  let plume, PG_W=64, PG_H=22, plumeInjected=0;
+  function makePlume(){plume=new Float32Array(PG_W*PG_H);plumeInjected=0;}
+  function emitQuantum(x,y,col){
+    quanta.push({x,y,vx:(Math.random()-.5)*0.6,vy:-1.4-Math.random()*1.2,life:1,col});
+  }
+  function emitFlame(x,y){
+    for(let i=0;i<5;i++){const a=-Math.PI/2+(Math.random()-.5)*1.0,s=1+Math.random()*2.2;
+      flames.push({x:x+(Math.random()-.5)*10,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1});}
+  }
+
+  // ---- bit tokens streaming along wires ----
+  // tokens travel left->right; one stream per wire, phase-offset so the furnace "flows"
+  let tokens=[];
+  function seedTokens(){
+    tokens=[];
+    for(const w of DAG.wires){
+      const a=DAG.nodeById[w.from], b=DAG.nodeById[w.to];
+      tokens.push({w, p:Math.random(), spd:0.006+Math.random()*0.004});
+    }
+  }
+
+  fit();buildDAG(seedN);makePlume();seedTokens();
+  window.addEventListener('resize',()=>{fit();layout();seedTokens();});
+
+  // ---- playback / cinematic state machine ----
+  let mode='lossy', tFrac=0, manual=false, t0=null, phase='cold', lastCol=-1, transTo=null, transP=0;
+  const DUR={cold:1500, run:4200, roar:1600, flip:0, cool:3800, after:2600};
+  // tFrac is 0..1 progress through the DAG columns (drives which columns have "fired")
+  function resetCinematic(){t0=null;phase='cold';tFrac=0;lastCol=-1;flash=0;shake=0;
+    quanta=[];flames=[];rings=[];makePlume();}
+
+  function setStatus(txt,cls){const s=document.getElementById('status');s.textContent=txt;s.className='badge '+(cls||'');}
+
+  function curMode(){return manual?mode:(modeOverride||mode);}
+  let modeOverride=null; // during auto loop we force lossy->reversible flip
+
+  function tick(ts){
+    const m = curMode();
+    const acc = DAG.acc[m];
+    if(!manual){
+      if(t0===null)t0=ts;
+      const e=ts-t0;
+      if(phase==='cold'){ modeOverride='lossy'; tFrac=0; if(e>DUR.cold){phase='run';t0=ts;} }
+      else if(phase==='run'){ modeOverride='lossy'; const p=Math.min(1,e/DUR.run); tFrac=p; if(p>=1){phase='roar';t0=ts;} }
+      else if(phase==='roar'){ modeOverride='lossy'; tFrac=1; if(e>DUR.roar){ // GOOSEBUMPS: flip to reversible
+          phase='cool';t0=ts;modeOverride='rev';flash=0.55;shake=6;
+          // sync segmented control visual
+          setSeg('rev');
+        } }
+      else if(phase==='cool'){ modeOverride='rev'; tFrac=1; if(e>DUR.cool){phase='after';t0=ts;} }
+      else if(phase==='after'){ if(e>DUR.after){
+          seedN=(seedN*1664525+1013904223)>>>0;buildDAG(seedN);seedTokens();
+          modeOverride=null;setSeg('lossy');resetCinematic();t0=ts;phase='cold';
+        } }
+    }
+
+    // which columns have "fired" up to current progress
+    const fireCol = Math.max(0, Math.min(DAG.nCols, Math.round(tFrac*DAG.nCols)));
+
+    // emit heat quanta as new columns fire (lossy mode only — reversible emits none)
+    if(!manual && fireCol>lastCol && m==='lossy'){
+      for(let c=lastCol+1;c<fireCol;c++){
+        for(const node of DAG.cols[c]){
+          if(GATES[node.g].erased>0){
+            flash=Math.max(flash,0.25);shake=Math.max(shake,3);
+            emitFlame(node.x,node.y);
+            for(let q=0;q<GATES[node.g].erased;q++) emitQuantum(node.x,node.y-14,'#ff7a3a');
+          }
+        }
+      }
+    }
+    lastCol=fireCol;
+
+    // when we flip to reversible during cool phase, blow off a cyan shockwave + cool the plume hard
+    if(!manual && phase==='cool' && rings.length===0 && ts-t0<60){
+      rings.push({x:FW/2,y:M.t-6,r:14,life:1});
+    }
+
+    updatePlume(m);
+    draw(ts, m, acc, fireCol);
+    requestAnimationFrame(tick);
+  }
+
+  // advect plume upward, diffuse, inject from rising quanta; bleed faster in reversible mode
+  function updatePlume(m){
+    const cool = (m==='rev');
+    const decay = cool?0.86:0.975;
+    const nxt=new Float32Array(PG_W*PG_H);
+    for(let y=0;y<PG_H;y++){
+      for(let x=0;x<PG_W;x++){
+        // sample from below (rising) + slight horizontal diffusion
+        const sy=Math.min(PG_H-1,y+1);
+        const c =plume[sy*PG_W+x];
+        const l =plume[sy*PG_W+Math.max(0,x-1)];
+        const r =plume[sy*PG_W+Math.min(PG_W-1,x+1)];
+        let v=(c*0.7+l*0.15+r*0.15)*decay;
+        // top rows cool toward zero (escape to environment)
+        if(y<2) v*=0.6;
+        nxt[y*PG_W+x]=v;
+      }
+    }
+    plume=nxt;
+  }
+  function injectPlume(px){ // px in 0..1 across width -> bottom row of plume grid
+    const gx=Math.max(0,Math.min(PG_W-1,Math.floor(px*PG_W)));
+    plume[(PG_H-1)*PG_W+gx]+=1.0;
+    plumeInjected++;
+  }
+
+  function draw(ts, m, acc, fireCol){
+    const d=dpr();
+    fx.setTransform(d,0,0,d,0,0);
+    fx.clearRect(0,0,FW,FH);
+    let sx=0,sy=0;if(shake>0){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake*=0.85;if(shake<.4)shake=0;}
+    fx.save();fx.translate(sx,sy);
+
+    const cool=(m==='rev');
+
+    // --- furnace housing / floor glow ---
+    fx.strokeStyle='rgba(34,211,238,0.04)';fx.lineWidth=1;
+    for(let gx=0;gx<FW;gx+=46){fx.beginPath();fx.moveTo(gx,M.t);fx.lineTo(gx,FH-M.b+18);fx.stroke();}
+    // hearth floor
+    const floorY=FH-M.b+8;
+    const fg=fx.createLinearGradient(0,floorY-30,0,floorY+12);
+    fg.addColorStop(0,'transparent');
+    fg.addColorStop(1,cool?'rgba(34,211,238,0.12)':'rgba(255,90,40,0.18)');
+    fx.fillStyle=fg;fx.fillRect(M.l-30,floorY-30,FW-M.l-M.r+60,42);
+
+    // --- thermal plume (render the heat-density grid) ---
+    drawPlume(ts,cool);
+
+    // --- wires ---
+    fx.lineWidth=1.4;
+    for(const w of DAG.wires){
+      const a=DAG.nodeById[w.from], b=DAG.nodeById[w.to];
+      const fired = w.c < fireCol;
+      if(fired){
+        fx.strokeStyle = cool?'rgba(34,211,238,0.30)':'rgba(255,178,74,0.26)';
+      } else {
+        fx.strokeStyle='rgba(80,110,120,0.12)';
+      }
+      fx.beginPath();
+      const mx=(a.x+b.x)/2;
+      fx.moveTo(a.x+9,a.y);
+      fx.bezierCurveTo(mx,a.y,mx,b.y,b.x-9,b.y);
+      fx.stroke();
+    }
+
+    // --- bit tokens flowing along fired wires ---
+    fx.globalCompositeOperation='lighter';
+    for(const tk of tokens){
+      if(tk.w.c>=fireCol) continue;
+      tk.p+=tk.spd; if(tk.p>1)tk.p-=1;
+      const a=DAG.nodeById[tk.w.from], b=DAG.nodeById[tk.w.to];
+      const mx=(a.x+b.x)/2, t=tk.p, mt=1-t;
+      // quadratic-ish along bezier
+      const x=mt*mt*mt*(a.x+9)+3*mt*mt*t*mx+3*mt*t*t*mx+t*t*t*(b.x-9);
+      const y=mt*mt*mt*a.y+3*mt*mt*t*a.y+3*mt*t*t*b.y+t*t*t*b.y;
+      const col=cool?'#9beaf6':'#ffe0a0';
+      fx.globalAlpha=0.9;fx.fillStyle=col;fx.shadowBlur=8;fx.shadowColor=col;
+      fx.beginPath();fx.arc(x,y,1.8,0,6.28);fx.fill();
+    }
+    fx.globalAlpha=1;fx.shadowBlur=0;fx.globalCompositeOperation='source-over';
+
+    // --- gates ---
+    const pulse=1+0.12*Math.sin(ts*0.005);
+    for(let c=0;c<DAG.nCols;c++){
+      for(const node of DAG.cols[c]){
+        const def=gateDef(node.g, m);
+        const fired = c < fireCol;
+        const lossyHere = !cool && GATES[node.g].erased>0; // is this gate irreversible in current mode
+        const irrev = (m==='lossy') ? GATES[node.g].erased>0 : false;
+        // flash intensity for recently-fired irreversible gates
+        let glow=0;
+        if(fired && irrev){
+          // brighten gates in the column that just fired
+          glow = (c===fireCol-1)?1:0.45;
+        }
+        let bx=node.x, by=node.y, w=18, h=14;
+        // body color
+        let body, edge;
+        if(!fired){ body='rgba(40,60,72,0.5)'; edge='rgba(90,120,130,0.5)'; }
+        else if(irrev){
+          const f=0.4+0.6*glow;
+          body=`rgba(${Math.round(40+200*f)},${Math.round(30+70*f)},${Math.round(20)},0.92)`;
+          edge='#ff7a3a';
+        } else {
+          body=cool?'rgba(10,40,48,0.9)':'rgba(14,30,44,0.9)';
+          edge=cool?'#22d3ee':'#4fb6c8';
+        }
+        fx.shadowBlur = fired?(irrev?(10+14*glow)*pulse:8):0;
+        fx.shadowColor = irrev?'#ff7a3a':(cool?'#22d3ee':'#3a8fa0');
+        roundRect(fx,bx-w/2,by-h/2,w,h,3);
+        fx.fillStyle=body;fx.fill();
+        fx.lineWidth=1.2;fx.strokeStyle=edge;fx.stroke();
+        fx.shadowBlur=0;
+        // label
+        fx.fillStyle = fired?(irrev?'#ffd9a0':(cool?'#bdf3fb':'#9fd6e0')):'rgba(150,170,180,0.6)';
+        fx.font='8px '+'ui-monospace,monospace';fx.textAlign='center';fx.textBaseline='middle';
+        const lbl = (m==='rev'&&REV_SUB[node.g])?REV_SUB[node.g][0]+REV_SUB[node.g].slice(1,3):GATES[node.g].lbl;
+        fx.fillText(lbl, bx, by);
+        fx.textAlign='left';fx.textBaseline='alphabetic';
+      }
+    }
+
+    // --- heat quanta rising into the plume ---
+    fx.globalCompositeOperation='lighter';
+    for(const q of quanta){
+      q.x+=q.vx;q.y+=q.vy;q.vy*=0.985;q.life-=0.012;
+      if(q.life<=0)continue;
+      // when a quantum reaches the plume zone, inject density and die
+      if(q.y<=M.t){
+        injectPlume((q.x-M.l)/(FW-M.l-M.r));
+        q.life=0;continue;
+      }
+      const a=Math.max(0,q.life);
+      fx.globalAlpha=a;fx.fillStyle='#ffb24a';fx.shadowBlur=12;fx.shadowColor='#ff7a3a';
+      fx.beginPath();fx.arc(q.x,q.y,1.5+1.2*a,0,6.28);fx.fill();
+    }
+    quanta=quanta.filter(q=>q.life>0);
+    // flame licks at gates
+    for(const fl of flames){
+      fl.x+=fl.vx;fl.y+=fl.vy;fl.vy+=0.02;fl.life-=0.045;
+      if(fl.life<=0)continue;
+      const a=Math.max(0,fl.life);
+      fx.globalAlpha=a*0.8;
+      fx.fillStyle = a>0.55?'#ffe089':(a>0.3?'#ff9a3a':'#ff5a2a');
+      fx.beginPath();fx.arc(fl.x,fl.y,1.3*a+0.5,0,6.28);fx.fill();
+    }
+    flames=flames.filter(f=>f.life>0);
+    fx.globalAlpha=1;fx.shadowBlur=0;fx.globalCompositeOperation='source-over';
+
+    // --- cool-down shockwave rings ---
+    for(const r of rings){r.r+=10;r.life-=0.02;if(r.life<=0)continue;
+      fx.globalAlpha=Math.max(0,r.life)*0.8;fx.strokeStyle='#22d3ee';fx.lineWidth=2;fx.shadowBlur=18;fx.shadowColor='#22d3ee';
+      fx.beginPath();fx.arc(r.x,r.y,r.r,0,6.28);fx.stroke();}
+    rings=rings.filter(r=>r.life>0);fx.globalAlpha=1;fx.shadowBlur=0;
+
+    // --- vignette + flash ---
+    const vg=fx.createRadialGradient(FW/2,FH*0.55,FH*0.25,FW/2,FH*0.55,FH*0.95);
+    vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(2,4,8,0.78)');
+    fx.fillStyle=vg;fx.fillRect(-20,-20,FW+40,FH+40);
+    if(flash>0){
+      if(cool) fx.fillStyle=`rgba(${Math.round(34*flash)},${Math.round(211*flash)},${Math.round(238*flash)},${flash*0.4})`;
+      else     fx.fillStyle=`rgba(255,${Math.round(120+80*flash)},${Math.round(40*flash)},${flash*0.42})`;
+      fx.fillRect(-20,-20,FW+40,FH+40);flash*=0.9;if(flash<.02)flash=0;
+    }
+    fx.restore();
+
+    // --- status + stats ---
+    const bits=acc.totalBits, E=acc.totalJ;
+    const lossyJ=DAG.acc.lossy.totalJ, revJ=DAG.acc.rev.totalJ;
+    const eff = lossyJ>0 ? (lossyJ-revJ)/lossyJ : 1; // fraction of heat that is avoidable; efficiency of rev = revJ/lossyJ
+    // thermo efficiency = reversible_floor / actual_floor (closer to 1 = cleaner). For rev mode it is 1.
+    const thermoEff = (m==='rev') ? 1 : (lossyJ>0 ? revJ/lossyJ : 1);
+
+    if(manual){
+      cool?setStatus('reversible — runs cold','cool'):setStatus('lossy — furnace hot','hot');
+    } else if(phase==='cold') setStatus('furnace cold — loading circuit','');
+    else if(phase==='run')    setStatus('▲ erasing bits · heat rising','hot');
+    else if(phase==='roar')   setStatus('▲▲ furnace at full roar','hot');
+    else if(phase==='cool')   setStatus('reversible re-synthesis — cooling','cool');
+    else                      setStatus('cold floor reached','cool');
+
+    document.getElementById('sbits').textContent = bits.toLocaleString();
+    document.getElementById('sbits').className='v '+(cool?'cool':'hot');
+    document.getElementById('sE').textContent = sci(E);
+    document.getElementById('sE').className='v '+(cool?'cool':'hot');
+    document.getElementById('sRev').textContent = sci(revJ);
+    document.getElementById('sEff').textContent = (thermoEff*100).toFixed(0)+'%';
+    document.getElementById('sEff').className='v '+(thermoEff>=0.999?'cool':'');
+    document.getElementById('tread').innerHTML='t <small>'+tFrac.toFixed(2)+'</small>';
+    if(!manual)document.getElementById('t').value=Math.round(tFrac*1000);
+
+    drawCurve(ts, m, fireCol);
+  }
+
+  function drawPlume(ts,cool){
+    const cw=(FW-M.l-M.r)/PG_W, ch=(M.t-6)/PG_H;
+    fx.globalCompositeOperation='lighter';
+    for(let y=0;y<PG_H;y++){
+      for(let x=0;x<PG_W;x++){
+        const v=plume[y*PG_W+x];
+        if(v<0.02)continue;
+        const a=Math.min(0.9,v*0.55);
+        // hot: red->amber->white as density rises; cool: cyan
+        let col;
+        if(cool){ col=`rgba(34,211,238,${a*0.7})`; }
+        else {
+          const hot=Math.min(1,v);
+          const r=255;
+          const g=Math.round(80+150*hot);
+          const b=Math.round(20+90*Math.max(0,hot-0.5));
+          col=`rgba(${r},${g},${b},${a})`;
+        }
+        const px=M.l+x*cw, py=2+y*ch;
+        // soft blobs with a little drift wobble
+        const wob=Math.sin(ts*0.001+x*0.5+y*0.3)*1.2;
+        fx.fillStyle=col;
+        fx.beginPath();fx.arc(px+cw/2+wob,py+ch/2,Math.max(cw,ch)*0.7,0,6.28);fx.fill();
+      }
+    }
+    fx.globalCompositeOperation='source-over';
+  }
+
+  // history of running floor for the lower curve (rebuilt per frame from accumulators — exact)
+  function drawCurve(ts, m, fireCol){
+    cx.clearRect(0,0,CW,CH);
+    const pl={l:54,r:14,t:18,b:24},W=CW-pl.l-pl.r,H=CH-pl.t-pl.b;
+    const lossy=DAG.acc.lossy, rev=DAG.acc.rev;
+    const ymax=Math.max(lossy.totalJ, QUANTUM)*1.12;
+    const nC=DAG.nCols;
+    const X=i=>pl.l+(nC<=1?0:i/(nC-1))*W;
+    const Y=v=>pl.t+(1-(v/ymax))*H;
+    // frame
+    cx.strokeStyle='rgba(40,55,70,0.25)';cx.lineWidth=1;cx.strokeRect(pl.l,pl.t,W,H);
+    cx.fillStyle='#5f7a78';cx.font='10px ui-monospace,monospace';
+    // y ticks in joules (scientific)
+    for(let g=0;g<=2;g++){const v=ymax*g/2;cx.fillText(sci(v),4,Y(v)+3);}
+    // x ticks = columns
+    for(let i=0;i<nC;i++){cx.fillText('c'+i,X(i)-6,CH-8);}
+
+    // reversible bound (flat cyan line — typically zero or near-zero)
+    cx.setLineDash([4,4]);cx.strokeStyle='rgba(34,211,238,0.7)';cx.lineWidth=1.4;cx.beginPath();
+    for(let i=0;i<nC;i++){const xx=X(i),yy=Y(rev.cumJ[i]);i?cx.lineTo(xx,yy):cx.moveTo(xx,yy);}cx.stroke();cx.setLineDash([]);
+    cx.fillStyle='#22d3ee';cx.fillText('reversible floor', X(0)+6, Y(rev.totalJ)-6);
+
+    // lossy running floor (amber/red staircase) — only up to fired columns when animating
+    const upto=manual?nC-1:Math.max(0,Math.min(nC-1,fireCol-1));
+    cx.strokeStyle='#ff7a3a';cx.lineWidth=2.2;cx.shadowBlur=10;cx.shadowColor='#ff7a3a';cx.beginPath();
+    for(let i=0;i<=upto;i++){const xx=X(i),yy=Y(lossy.cumJ[i]);i?cx.lineTo(xx,yy):cx.moveTo(xx,yy);}cx.stroke();cx.shadowBlur=0;
+
+    // current-mode marker dot at the leading edge
+    const curJ = (m==='rev')?rev.cumJ[upto]:lossy.cumJ[upto];
+    const mr=2.6+1.6*Math.sin(ts*0.006);
+    cx.fillStyle=(m==='rev')?'#22d3ee':'#ffb24a';cx.shadowBlur=14;cx.shadowColor=cx.fillStyle;
+    cx.beginPath();cx.arc(X(upto),Y(curJ),mr+1.5,0,6.28);cx.fill();cx.shadowBlur=0;
+
+    // label the peak floor
+    cx.fillStyle='#ff7a3a';cx.font='10px ui-monospace,monospace';
+    cx.fillText('lossy floor '+sci(lossy.totalJ), X(nC-1)-110, Y(lossy.totalJ)-6);
+  }
+
+  // ---- helpers ----
+  function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+  function sci(v){
+    if(v===0)return'0 J';
+    const e=Math.floor(Math.log10(v));
+    const m=v/Math.pow(10,e);
+    return m.toFixed(2)+'×10'+sup(e)+' J';
+  }
+  function sup(n){const map={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};return String(n).split('').map(c=>map[c]||c).join('');}
+
+  // ---- controls ----
+  function setSeg(m){
+    document.querySelectorAll('#mode button').forEach(b=>{
+      const on=b.dataset.m===m;
+      b.classList.toggle('on',on);
+      b.classList.toggle('rev', on && m==='rev');
+    });
+  }
+  const slider=document.getElementById('t');
+  slider.addEventListener('input',()=>{manual=true;tFrac=+slider.value/1000;
+    // in manual mode, fire columns up to slider; rebuild lastCol so quanta don't burst
+    lastCol=Math.round(tFrac*DAG.nCols);});
+  document.querySelectorAll('#mode button').forEach(b=>b.addEventListener('click',()=>{
+    setSeg(b.dataset.m);mode=b.dataset.m;modeOverride=null;manual=true;tFrac=1;lastCol=DAG.nCols;
+    if(mode==='rev'){makePlume();rings.push({x:FW/2,y:M.t-6,r:14,life:1});flash=0.4;}
+  }));
+  document.getElementById('play').addEventListener('click',()=>{manual=false;mode='lossy';setSeg('lossy');modeOverride=null;resetCinematic();});
+
+  requestAnimationFrame(tick);
+})();
+</script>

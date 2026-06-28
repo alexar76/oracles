@@ -1,0 +1,40 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install oracle-core + all oracles
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "core[dev,pqc]"
+          for o in chronos lattice murmuration lumen colony turing; do
+            pip install -e "oracles/$o"
+          done
+          pip install -e "oracles/platon/backend[dev]"
+
+      - name: Run the whole family test suite + coverage badge
+        env:
+          PLATON_TESTING: "1"
+          AICOM_CI_ENFORCE_BADGE_SYNC: "1"
+        run: |
+          bash scripts/ci_coverage_badge.sh -- \
+            core/tests \
+            oracles/chronos/tests \
+            oracles/lattice/tests \
+            oracles/murmuration/tests \
+            oracles/lumen/tests \
+            oracles/colony/tests \
+            oracles/turing/tests \
+            oracles/platon/backend/tests \
+            -q --cov=core --cov=oracles

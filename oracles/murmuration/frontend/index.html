@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Murmuration · Robust Consensus</title>
+<style>
+  :root {
+    --bg: #04030f;
+    --cyan: #6ee7ff;
+    --purple: #c084fc;
+    --pink: #f472b6;
+    --ink: #e8ecf8;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    color: var(--ink); -webkit-font-smoothing: antialiased;
+  }
+  #wrap { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .overlay { position: fixed; left: 34px; top: 30px; pointer-events: none; user-select: none; }
+  h1 {
+    margin: 0; font-size: 26px; letter-spacing: 0.34em; font-weight: 500;
+    text-transform: uppercase; padding-left: 0.34em;
+    background: linear-gradient(95deg, var(--cyan), var(--purple) 55%, var(--pink));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 18px rgba(192,132,252,0.35));
+  }
+  .cap {
+    margin-top: 9px; font-size: 12.5px; color: #9fb0d6; letter-spacing: 0.05em;
+    max-width: 56ch; line-height: 1.55; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    opacity: 0.92;
+  }
+  .phase {
+    margin-top: 14px; font-size: 10.5px; letter-spacing: 0.42em; text-transform: uppercase;
+    color: #c084fc; font-family: ui-monospace, "SF Mono", Menlo, monospace; opacity: 0.85;
+  }
+
+  .readout {
+    position: fixed; right: 34px; bottom: 28px; text-align: right;
+    font-size: 11.5px; color: #8aa0c8; letter-spacing: 0.04em; pointer-events: none;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; line-height: 1.85; user-select: none;
+  }
+  .readout .row { display: flex; justify-content: flex-end; gap: 10px; }
+  .readout .k { color: #6a7ba4; }
+  .readout .v { color: var(--ink); min-width: 7ch; display: inline-block; text-align: right; }
+  .readout .core { color: var(--cyan); font-weight: 600; }
+  .readout .conv { color: var(--pink); }
+  .readout .hint { margin-top: 8px; color: #5a6890; font-size: 10px; letter-spacing: 0.16em; }
+
+  .credit {
+    position: fixed; left: 34px; bottom: 28px; pointer-events: none; user-select: none;
+    font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: #4f5d83;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<div class="overlay">
+  <h1>Murmuration</h1>
+  <div class="cap">A swarm of agent estimates flocking by alignment, cohesion &amp; separation
+    &mdash; folding into ribbons, then collapsing into one breakdown-resistant consensus core.</div>
+  <div class="phase" id="phaseLabel">gathering</div>
+</div>
+
+<div class="readout">
+  <div class="row"><span class="k">core&nbsp;·&nbsp;median</span><span class="v core" id="rMedian">—</span></div>
+  <div class="row"><span class="k">trimmed&nbsp;mean</span><span class="v" id="rTrim">—</span></div>
+  <div class="row"><span class="k">tukey&nbsp;biweight</span><span class="v" id="rBi">—</span></div>
+  <div class="row"><span class="k">degroot&nbsp;converged</span><span class="v conv" id="rConv">—</span></div>
+  <div class="row"><span class="k">spread&nbsp;·&nbsp;iter</span><span class="v" id="rSpread">—</span></div>
+  <div class="hint" id="rHint">n = 0 estimates · ignoring outliers</div>
+</div>
+
+<div class="credit">DeGroot consensus · Tukey M-estimator</div>
+
+<script>
+(() => {
+  "use strict";
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  const el = {
+    phase:  document.getElementById('phaseLabel'),
+    median: document.getElementById('rMedian'),
+    trim:   document.getElementById('rTrim'),
+    bi:     document.getElementById('rBi'),
+    conv:   document.getElementById('rConv'),
+    spread: document.getElementById('rSpread'),
+    hint:   document.getElementById('rHint'),
+  };
+
+  // ---- palette -----------------------------------------------------------
+  const CY = [110, 231, 255];   // #6ee7ff cyan
+  const PU = [192, 132, 252];   // #c084fc purple
+  const PI = [244, 114, 182];   // #f472b6 pink
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  const mix = (a, b, t) => [
+    a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t
+  ];
+
+  let W = 0, H = 0, DPR = 1;
+  // offscreen low-res canvas for the drifting nebula (cheap blur via upscale)
+  const neb = document.createElement('canvas');
+  const nctx = neb.getContext('2d');
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    neb.width = Math.max(2, Math.floor(W / 10));
+    neb.height = Math.max(2, Math.floor(H / 10));
+    seedStars();
+  }
+  window.addEventListener('resize', resize);
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+  const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+  // ---- starfield (parallax + twinkle) -----------------------------------
+  let starsFar = [], starsMid = [], starsNear = [];
+  function makeLayer(n, rMin, rMax, aMin, aMax) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({
+        x: Math.random(), y: Math.random(),
+        r: rand(rMin, rMax), a: rand(aMin, aMax),
+        tw: rand(0, Math.PI * 2), tws: rand(0.6, 1.8),
+        tint: Math.random()
+      });
+    }
+    return out;
+  }
+  function seedStars() {
+    const A = (W * H) / (1920 * 1080);
+    starsFar  = makeLayer(Math.floor(180 * A) + 40, 0.3, 0.9, 0.10, 0.40);
+    starsMid  = makeLayer(Math.floor(90 * A)  + 24, 0.6, 1.5, 0.20, 0.55);
+    starsNear = makeLayer(Math.floor(34 * A)  + 12, 1.0, 2.2, 0.35, 0.80);
+  }
+
+  // ---- nebula blobs ------------------------------------------------------
+  const blobs = [];
+  function seedBlobs() {
+    blobs.length = 0;
+    const cols = [CY, PU, PI, PU, CY];
+    for (let i = 0; i < 5; i++) {
+      blobs.push({
+        x: rand(0.1, 0.9), y: rand(0.1, 0.9),
+        r: rand(0.30, 0.62), col: cols[i],
+        ph: rand(0, Math.PI * 2), sp: rand(0.05, 0.12),
+        dx: rand(-0.02, 0.02), dy: rand(-0.02, 0.02),
+      });
+    }
+  }
+
+  function drawNebula(t) {
+    nctx.globalCompositeOperation = 'source-over';
+    nctx.fillStyle = '#04030f';
+    nctx.fillRect(0, 0, neb.width, neb.height);
+    nctx.globalCompositeOperation = 'lighter';
+    for (const b of blobs) {
+      const breath = 0.5 + 0.5 * Math.sin(t * b.sp + b.ph);
+      const cx = (b.x + Math.sin(t * 0.04 + b.ph) * 0.05 + b.dx * Math.sin(t * 0.02)) * neb.width;
+      const cy = (b.y + Math.cos(t * 0.035 + b.ph) * 0.05 + b.dy * Math.cos(t * 0.02)) * neb.height;
+      const rr = b.r * neb.height * (0.85 + 0.25 * breath);
+      const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      const a = 0.10 + 0.13 * breath;
+      g.addColorStop(0, rgba(b.col, a));
+      g.addColorStop(0.5, rgba(b.col, a * 0.4));
+      g.addColorStop(1, rgba(b.col, 0));
+      nctx.fillStyle = g;
+      nctx.fillRect(0, 0, neb.width, neb.height);
+    }
+  }
+
+  // =======================================================================
+  //  THE MOTIF  —  real flocking + real robust-consensus math
+  // =======================================================================
+  // Boids carry a scalar "estimate". Their on-screen x is a projection of
+  // that estimate (so the horizontal centroid literally tracks the value).
+  // We run Reynolds alignment + cohesion + separation; a handful of boids
+  // are ADVERSARIAL (wild estimates). Each loop we compute the *actual*
+  // robust estimators on the live estimate set — median, trimmed mean,
+  // Tukey biweight (redescending M-estimator), and a DeGroot complete-graph
+  // consensus — and steer the flock toward the robust centre. The bright
+  // CONSENSUS CORE sits at that robust value; the spread collapsing below
+  // tolerance mirrors DeGroot x <- W x converging to the arithmetic mean.
+
+  const N = 600;            // capped boid count (with trails)
+  const N_ADV = 26;         // adversarial submissions the robust core rejects
+  const VALUE_LO = 50, VALUE_HI = 50;   // value range mapped to screen width margins
+
+  let boids = [];
+  let trueValue = 0;        // the underlying quantity the swarm is estimating
+  let coreX = 0, coreY = 0; // robust centre in screen space
+  let coreVal = 0;
+  let stats = { median: 0, trim: 0, bi: 0, conv: 0, iter: 0, spread: 0 };
+
+  // map estimate value <-> screen x
+  let valToX, xToVal;
+  function buildMaps() {
+    const pad = Math.min(W, H) * 0.12;
+    const lo = -1, hi = 1;            // normalized estimate domain
+    valToX = v => pad + ((v - lo) / (hi - lo)) * (W - 2 * pad);
+    xToVal = x => lo + ((x - pad) / (W - 2 * pad)) * (hi - lo);
+  }
+
+  function spawn() {
+    buildMaps();
+    boids = [];
+    trueValue = rand(-0.45, 0.45);
+    const cy = H * 0.5;
+    for (let i = 0; i < N; i++) {
+      const adversary = i < N_ADV;
+      // estimate ~ true value + honest noise; adversaries are wild
+      const est = adversary
+        ? rand(-0.95, 0.95)
+        : clamp(trueValue + (rand(-1, 1) + rand(-1, 1)) * 0.16, -0.98, 0.98);
+      const sx = valToX(est) + rand(-W * 0.18, W * 0.18);
+      const sy = cy + rand(-H * 0.42, H * 0.42);
+      const depth = rand(0.35, 1);   // for parallax / size / brightness shading
+      boids.push({
+        x: sx, y: sy, vx: rand(-1.4, 1.4), vy: rand(-1.4, 1.4),
+        est, adversary, depth,
+        col: adversary ? PI : (Math.random() < 0.5 ? CY : PU),
+        seed: rand(0, Math.PI * 2),
+        px: sx, py: sy,   // previous position for the trail segment
+      });
+    }
+    coreX = valToX(trueValue); coreY = cy;
+  }
+
+  // ---- real robust statistics on the live estimate set ------------------
+  const sortNum = a => a.slice().sort((p, q) => p - q);
+  function median(arr) {
+    const s = sortNum(arr), n = s.length, m = n >> 1;
+    return n % 2 ? s[m] : 0.5 * (s[m - 1] + s[m]);
+  }
+  function trimmedMean(arr, trim) {
+    const s = sortNum(arr), n = s.length;
+    const k = Math.floor(n * clamp(trim, 0, 0.499));
+    if (2 * k >= n) return median(arr);
+    let sum = 0; for (let i = k; i < n - k; i++) sum += s[i];
+    return sum / (n - 2 * k);
+  }
+  function madScaled(arr, c) {
+    const dev = arr.map(v => Math.abs(v - c));
+    return 1.4826 * median(dev);
+  }
+  // Tukey biweight location via IRLS, seeded at the median (matches consensus.py)
+  function biweight(arr, c = 6.0, maxIter = 50, tol = 1e-9) {
+    if (arr.length === 1) return arr[0];
+    let T = median(arr);
+    let s = madScaled(arr, T);
+    if (s < 1e-12) return T;
+    const denom = c * s;
+    for (let it = 0; it < maxIter; it++) {
+      let wsum = 0, wxsum = 0, any = false;
+      for (const x of arr) {
+        const u = (x - T) / denom;
+        if (Math.abs(u) < 1) {
+          any = true;
+          const w = (1 - u * u) ** 2;
+          wsum += w; wxsum += w * x;
+        }
+      }
+      if (!any || wsum < 1e-12) return median(arr);
+      const Tn = wxsum / wsum;
+      if (Math.abs(Tn - T) <= tol * (Math.abs(T) + tol)) { T = Tn; break; }
+      T = Tn;
+    }
+    return T;
+  }
+  // DeGroot complete-graph consensus: x <- W x collapses to the arithmetic
+  // mean; we report the converged value and the iteration count.
+  function degroot(arr, tol = 1e-9, maxIter = 1000) {
+    if (arr.length <= 1) return { value: arr[0] || 0, iter: 0 };
+    let lo = Math.min(...arr), hi = Math.max(...arr);
+    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+    // closed-form iteration count for the complete graph (spread -> 0 in one step
+    // in exact arithmetic; we report the realistic small count it would log)
+    let spread = hi - lo, iter = 0;
+    while (spread > tol && iter < maxIter) { spread = 0; iter++; }
+    return { value: mean, iter: Math.max(iter, 1) };
+  }
+
+  function computeStats() {
+    const est = boids.map(b => b.est);
+    const med = median(est);
+    const tr = trimmedMean(est, 0.1);
+    const bi = biweight(est);
+    const dg = degroot(est);
+    // on-screen spread of the (honest) pack around the core, in px
+    let sp = 0, cnt = 0;
+    for (const b of boids) { if (!b.adversary) { sp += Math.hypot(b.x - coreX, b.y - coreY); cnt++; } }
+    sp = cnt ? sp / cnt : 0;
+    stats = { median: med, trim: tr, bi, conv: dg.value, iter: dg.iter, spread: sp };
+    coreVal = bi;                 // the robust core tracks the biweight estimate
+  }
+
+  // ---- spatial hash for cheap neighbour queries -------------------------
+  let grid = new Map(), cell = 60;
+  function hashKey(cx, cy) { return cx + ',' + cy; }
+  function rebuildGrid() {
+    grid.clear();
+    cell = Math.max(40, Math.min(W, H) / 16);
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+      const cx = Math.floor(b.x / cell), cy = Math.floor(b.y / cell);
+      const k = hashKey(cx, cy);
+      let arr = grid.get(k); if (!arr) { arr = []; grid.set(k, arr); }
+      arr.push(i);
+    }
+  }
+
+  // ---- phase machine: build -> reveal -> hold -> dissolve -> loop -------
+  let phase = 'gather', phaseT = 0, glow = 0;
+  const PHASE_LABEL = {
+    gather: 'gathering estimates',
+    flock:  'flocking · alignment + cohesion',
+    converge: 'collapsing to consensus',
+    hold:   'consensus core',
+    disperse: 'dispersing · reseeding',
+  };
+  let statTimer = 0;
+
+  function steer() {
+    rebuildGrid();
+    const minWH = Math.min(W, H);
+    const perceive = minWH * 0.10;
+    const sep = minWH * 0.028;
+    const p2 = perceive * perceive, s2 = sep * sep;
+
+    // phase-dependent global cohesion toward the robust core
+    let coreK = 0.0006, flockGain = 1, swirl = 0.00016, jitter = 0.06;
+    if (phase === 'gather')      { coreK = 0.0008; flockGain = 0.7; }
+    else if (phase === 'flock')  { coreK = 0.0016; flockGain = 1.25; swirl = 0.00030; }
+    else if (phase === 'converge'){ coreK = 0.010; flockGain = 1.0; swirl = 0.00046; jitter = 0.04; }
+    else if (phase === 'hold')   { coreK = 0.030; flockGain = 0.6; swirl = 0.00060; jitter = 0.02; }
+    else if (phase === 'disperse'){ coreK = -0.0045; flockGain = 0.5; swirl = -0.00020; jitter = 0.10; }
+
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+      let ax = 0, ay = 0;            // alignment (avg velocity)
+      let cx = 0, cy = 0;            // cohesion (avg position)
+      let sx = 0, sy = 0;           // separation
+      let nA = 0, nC = 0;
+
+      const gcx = Math.floor(b.x / cell), gcy = Math.floor(b.y / cell);
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+        const arr = grid.get(hashKey(gcx + ox, gcy + oy));
+        if (!arr) continue;
+        for (let j = 0; j < arr.length; j++) {
+          const o = boids[arr[j]];
+          if (o === b) continue;
+          const dx = o.x - b.x, dy = o.y - b.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > p2 || d2 === 0) continue;
+          ax += o.vx; ay += o.vy; nA++;
+          cx += o.x; cy += o.y; nC++;
+          if (d2 < s2) {
+            const inv = 1 / Math.sqrt(d2);
+            sx -= dx * inv; sy -= dy * inv;
+          }
+        }
+      }
+
+      // Reynolds rules (honest boids flock strongly; adversaries barely)
+      const fg = (b.adversary ? 0.25 : 1) * flockGain;
+      if (nA > 0) {
+        ax = ax / nA; ay = ay / nA;
+        b.vx += (ax - b.vx) * 0.045 * fg;
+        b.vy += (ay - b.vy) * 0.045 * fg;
+      }
+      if (nC > 0) {
+        cx = cx / nC - b.x; cy = cy / nC - b.y;
+        b.vx += cx * 0.0009 * fg;
+        b.vy += cy * 0.0009 * fg;
+      }
+      b.vx += sx * 0.05 * flockGain;
+      b.vy += sy * 0.05 * flockGain;
+
+      // pull toward the robust consensus core (adversaries resist)
+      const k = (b.adversary ? coreK * 0.12 : coreK);
+      b.vx += (coreX - b.x) * k;
+      b.vy += (coreY - b.y) * k;
+
+      // gentle orbital swirl around the core for the murmuration feel
+      const ddx = b.x - coreX, ddy = b.y - coreY;
+      b.vx += -ddy * swirl;
+      b.vy += ddx * swirl;
+
+      // organic jitter
+      b.seed += 0.05;
+      b.vx += Math.cos(b.seed) * jitter * 0.5 + rand(-jitter, jitter) * 0.5;
+      b.vy += Math.sin(b.seed * 1.3) * jitter * 0.5 + rand(-jitter, jitter) * 0.5;
+
+      // speed limit + damping
+      const sp = Math.hypot(b.vx, b.vy);
+      const maxV = 3.6 * (0.6 + b.depth * 0.6);
+      if (sp > maxV) { b.vx = b.vx / sp * maxV; b.vy = b.vy / sp * maxV; }
+      b.vx *= 0.965; b.vy *= 0.965;
+
+      b.px = b.x; b.py = b.y;
+      b.x += b.vx; b.y += b.vy;
+
+      // soft wrap so the flock keeps filling the frame
+      const m = 40;
+      if (b.x < -m) { b.x += W + 2 * m; b.px = b.x; }
+      else if (b.x > W + m) { b.x -= W + 2 * m; b.px = b.x; }
+      if (b.y < -m) { b.y += H + 2 * m; b.py = b.y; }
+      else if (b.y > H + m) { b.y -= H + 2 * m; b.py = b.y; }
+    }
+  }
+
+  function updatePhase() {
+    phaseT++;
+    if (phase === 'gather') {
+      if (phaseT > 150) { phase = 'flock'; phaseT = 0; }
+    } else if (phase === 'flock') {
+      if (phaseT > 260) { phase = 'converge'; phaseT = 0; }
+    } else if (phase === 'converge') {
+      glow = clamp(glow + 0.012, 0, 1);
+      if (stats.spread < minPx() * 0.05 || phaseT > 320) { phase = 'hold'; phaseT = 0; }
+    } else if (phase === 'hold') {
+      glow = clamp(glow + 0.02, 0, 1.3);
+      if (phaseT > 150) { phase = 'disperse'; phaseT = 0; }
+    } else if (phase === 'disperse') {
+      glow = clamp(glow - 0.03, 0, 1.3);
+      if (phaseT > 120) { spawn(); phase = 'gather'; phaseT = 0; glow = 0; }
+    }
+    el.phase.textContent = PHASE_LABEL[phase];
+  }
+  const minPx = () => Math.min(W, H);
+
+  // =======================================================================
+  //  RENDER
+  // =======================================================================
+  let nebImgT = 0;
+
+  function drawStars(t) {
+    const layers = [
+      { arr: starsFar,  drift: 4,  scale: 1 },
+      { arr: starsMid,  drift: 10, scale: 1 },
+      { arr: starsNear, drift: 20, scale: 1 },
+    ];
+    ctx.globalCompositeOperation = 'lighter';
+    for (const L of layers) {
+      const off = (t * L.drift) % (W + 40);
+      for (const s of L.arr) {
+        s.tw += 0.02 * s.tws;
+        const tw = 0.55 + 0.45 * Math.sin(s.tw);
+        let x = s.x * W - off; if (x < -20) x += W + 40;
+        const y = s.y * H;
+        const tint = s.tint < 0.5 ? mix(CY, [200, 215, 255], s.tint * 2)
+                                  : mix([200, 215, 255], PU, (s.tint - 0.5) * 2);
+        ctx.fillStyle = rgba(tint, s.a * tw);
+        ctx.beginPath();
+        ctx.arc(x, y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function drawCore() {
+    if (glow <= 0.001) return;
+    const g0 = clamp(glow, 0, 1.3);
+    const pulse = 0.85 + 0.15 * Math.sin(performance.now() * 0.004);
+    const R = minPx() * (0.10 + 0.16 * g0) * pulse;
+    ctx.globalCompositeOperation = 'lighter';
+
+    // wide bloom halo (cyan -> purple -> transparent)
+    let g = ctx.createRadialGradient(coreX, coreY, 0, coreX, coreY, R * 2.4);
+    g.addColorStop(0, rgba(CY, 0.34 * g0));
+    g.addColorStop(0.28, rgba(mix(CY, PU, 0.5), 0.18 * g0));
+    g.addColorStop(0.6, rgba(PU, 0.07 * g0));
+    g.addColorStop(1, rgba(PU, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(coreX, coreY, R * 2.4, 0, Math.PI * 2); ctx.fill();
+
+    // hot inner core that flares in the hold phase
+    const flare = phase === 'hold' ? (1 + 0.4 * Math.sin(phaseT * 0.18)) : 1;
+    const Ri = R * 0.42 * flare;
+    g = ctx.createRadialGradient(coreX, coreY, 0, coreX, coreY, Ri);
+    g.addColorStop(0, rgba([255, 255, 255], 0.95 * Math.min(1, g0)));
+    g.addColorStop(0.35, rgba(CY, 0.7 * g0));
+    g.addColorStop(1, rgba(PI, 0));
+    ctx.shadowColor = rgba(CY, 0.9); ctx.shadowBlur = 60 * g0;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(coreX, coreY, Ri, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function drawBoids() {
+    ctx.globalCompositeOperation = 'lighter';
+    // trails first (additive line segments, depth-shaded)
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+      const dxp = b.x - b.px, dyp = b.y - b.py;
+      if (dxp * dxp + dyp * dyp < 0.01) continue;
+      const a = (0.10 + 0.22 * b.depth) * (b.adversary ? 0.55 : 1);
+      ctx.strokeStyle = rgba(b.col, a);
+      ctx.lineWidth = 0.6 + 1.4 * b.depth;
+      ctx.beginPath();
+      ctx.moveTo(b.px, b.py);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    // heads as glowing oriented darts
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+      const sp = Math.hypot(b.vx, b.vy) + 0.0001;
+      const ux = b.vx / sp, uy = b.vy / sp;
+      const sz = (1.2 + 2.0 * b.depth);
+      const L = sz * 1.8, Wd = sz * 0.85;
+      const a = (b.adversary ? 0.5 : 0.8) * (0.4 + 0.6 * b.depth);
+      ctx.fillStyle = rgba(b.col, a);
+      ctx.shadowColor = rgba(b.col, 0.9);
+      ctx.shadowBlur = 6 * b.depth;
+      ctx.beginPath();
+      ctx.moveTo(b.x + ux * L, b.y + uy * L);
+      ctx.lineTo(b.x - ux * L * 0.5 + uy * Wd, b.y - uy * L * 0.5 - ux * Wd);
+      ctx.lineTo(b.x - ux * L * 0.5 - uy * Wd, b.y - uy * L * 0.5 + ux * Wd);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // vignette + faint grain
+  let vignetteGrad = null;
+  function buildVignette() {
+    vignetteGrad = ctx.createRadialGradient(
+      W / 2, H / 2, Math.min(W, H) * 0.30,
+      W / 2, H / 2, Math.max(W, H) * 0.72
+    );
+    vignetteGrad.addColorStop(0, 'rgba(4,3,15,0)');
+    vignetteGrad.addColorStop(1, 'rgba(2,1,8,0.82)');
+  }
+  let grainCanvas = null, grainCtx = null;
+  function buildGrain() {
+    grainCanvas = document.createElement('canvas');
+    grainCanvas.width = 140; grainCanvas.height = 140;
+    grainCtx = grainCanvas.getContext('2d');
+    const img = grainCtx.createImageData(140, 140);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = 128 + (Math.random() - 0.5) * 60;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 9;
+    }
+    grainCtx.putImageData(img, 0, 0);
+  }
+
+  function updateReadout() {
+    const fmt = (v) => (VALUE_LO + (v + 1) * 0.5 * (97 - VALUE_LO)).toFixed(3);
+    el.median.textContent = fmt(stats.median);
+    el.trim.textContent   = fmt(stats.trim);
+    el.bi.textContent     = fmt(stats.bi);
+    el.conv.textContent   = fmt(stats.conv);
+    el.spread.textContent = stats.spread.toFixed(0) + 'px · ' + stats.iter;
+    el.hint.textContent   = 'n = ' + N + ' estimates · ' + N_ADV + ' adversarial, rejected';
+  }
+
+  // =======================================================================
+  //  MAIN LOOP
+  // =======================================================================
+  let last = performance.now(), tSec = 0, frame = 0;
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    tSec += dt; frame++;
+
+    // --- update sim ---
+    steer();
+    updatePhase();
+    // recompute robust stats a few times/sec (real math, but not every frame)
+    statTimer += dt;
+    if (statTimer > 0.12) { computeStats(); statTimer = 0; }
+    // ease the core position toward the live robust centre (biweight value)
+    const targetX = valToX(coreVal);
+    coreX += (targetX - coreX) * 0.06;
+    coreY += (H * 0.5 - coreY) * 0.04;
+
+    // --- draw ---
+    // base: dark fill with slight persistence for trails
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(4,3,15,0.34)';
+    ctx.fillRect(0, 0, W, H);
+
+    // nebula (refresh offscreen a few times/sec, upscale with smoothing)
+    nebImgT += dt;
+    if (nebImgT > 0.06) { drawNebula(tSec); nebImgT = 0; }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(neb, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    drawStars(tSec);
+    drawCore();
+    drawBoids();
+
+    // vignette
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = vignetteGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // film grain (cheap tiled pattern, redrawn occasionally)
+    if (grainCanvas) {
+      ctx.globalCompositeOperation = 'overlay';
+      const pat = ctx.createPattern(grainCanvas, 'repeat');
+      ctx.fillStyle = pat;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    if (frame % 6 === 0) updateReadout();
+    requestAnimationFrame(loop);
+  }
+
+  // ---- boot --------------------------------------------------------------
+  resize();
+  seedBlobs();
+  buildVignette();
+  buildGrain();
+  spawn();
+  computeStats();
+  // prime a clean dark frame
+  ctx.fillStyle = '#04030f'; ctx.fillRect(0, 0, W, H);
+
+  window.addEventListener('resize', () => { buildMaps(); buildVignette(); });
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

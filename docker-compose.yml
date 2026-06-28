@@ -1,0 +1,55 @@
+# Oracle family — each oracle is an independent service on the shared protocol.
+services:
+  oracles-landing:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:5180:80"
+    restart: unless-stopped
+
+  chronos:
+    build:
+      context: .
+      dockerfile: oracles/chronos/Dockerfile
+    environment:
+      CHRONOS_PORT: "9300"
+      # Advertised behind the TLS edge (nginx `location /chronos/`), not the raw port.
+      CHRONOS_PUBLIC_URL: ${CHRONOS_PUBLIC_URL:-https://oracles.modelmarket.dev/chronos}
+      # ORACLE_PQC: "1"                       # enable hybrid post-quantum signatures
+      # ORACLE_SIGNING_SEED_B64: "<from KMS>" # inject the key, never on disk
+    ports:
+      # Loopback only — published through nginx /chronos/ (TLS + per-IP limit),
+      # never raw on 0.0.0.0. A 0.0.0.0 bind would insert a Docker DNAT rule that
+      # precedes UFW and exposes the oracle on plain HTTP to the whole internet.
+      - "127.0.0.1:9300:9300"
+
+  # Oracle Family — ONE endpoint, all 17 oracles in one signed manifest.
+  # Serves the 10 oracle_core oracles (chronos/lattice/murmuration/lumen/colony/
+  # turing/percola/fermat/ablation/landauer) locally, and FEDERATES the live
+  # Platon oracle (proxies platon.*
+  # invokes to it over the `ecosystem` network).
+  oracle-family:
+    build:
+      context: .
+      dockerfile: oracles/oracle-family/Dockerfile
+    environment:
+      ORACLE_FAMILY_PORT: "9400"
+      ORACLE_FAMILY_PUBLIC_URL: ${ORACLE_FAMILY_PUBLIC_URL:-https://oracles.modelmarket.dev/family}
+      ORACLE_FAMILY_PLATON_URL: ${ORACLE_FAMILY_PLATON_URL:-http://platon-backend:9200}
+    ports:
+      # Loopback only — published via nginx `location /family/` (TLS + per-IP limit).
+      - "127.0.0.1:9400:9400"
+    restart: unless-stopped
+    networks:
+      - default
+      - ecosystem
+
+  # Platon (oracle #1) ships from oracles/platon/ — its own backend/Dockerfile + UMBRAL cave.
+  # platon:
+  #   build: { context: oracles/platon, dockerfile: backend/Dockerfile }
+  #   ports: ["9200:9200"]
+
+networks:
+  ecosystem:
+    external: true
