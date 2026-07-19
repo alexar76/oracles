@@ -1,0 +1,31 @@
+"""Murmuration FastAPI app — the whole AIMarket v2 surface comes from oracle-core."""
+
+from __future__ import annotations
+
+import os
+
+from oracle_core import create_app
+
+from murmuration.capabilities import SPEC
+from murmuration.receipts import install_result_binding
+
+app = create_app(
+    SPEC,
+    cors_origins=os.environ.get("MURMURATION_CORS_ORIGINS", "*"),
+    extra=install_result_binding,
+)
+
+
+def main() -> None:
+    import uvicorn
+
+    uvicorn.run(
+        "murmuration.main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("MURMURATION_PORT", "9302")),
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

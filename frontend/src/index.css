@@ -1,0 +1,34 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: #04030f; overflow: hidden; }
+body { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #cfe9ff; }
+
+.overlay {
+  position: fixed; left: 28px; top: 22px; pointer-events: none; z-index: 10;
+  text-shadow: 0 0 18px rgba(110, 231, 255, 0.5);
+}
+.overlay h1 {
+  margin: 0; font-family: "Iowan Old Style", Georgia, serif; font-weight: 500;
+  font-size: 30px; letter-spacing: 0.4em;
+  background: linear-gradient(90deg, #6ee7ff, #c084fc, #f472b6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.overlay p { margin: 0.5em 0 0; font-size: 11px; letter-spacing: 0.22em; color: #8aa6c8; opacity: 0.85; }
+
+.picker {
+  position: fixed; right: 22px; top: 20px; z-index: 10; display: flex; gap: 6px; flex-wrap: wrap;
+  max-width: 60vw; justify-content: flex-end;
+}
+.picker a {
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 4px 9px; border: 1px solid rgba(110, 231, 255, 0.25); border-radius: 6px;
+  color: #8aa6c8; text-decoration: none; background: rgba(8, 10, 24, 0.4); backdrop-filter: blur(4px);
+}
+.picker a.active { color: #6ee7ff; border-color: #6ee7ff; }
+
+.err { position: fixed; left: 28px; bottom: 24px; color: #e5604d; font-size: 12px; z-index: 10; }
+
+.ambient-frame {
+  position: fixed; inset: 0; width: 100%; height: 100%; border: none; z-index: 0;
+  background: #04030f;
+}

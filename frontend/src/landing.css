@@ -1,0 +1,115 @@
+.home {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% -8%, rgba(110, 231, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 88% 22%, rgba(192, 132, 252, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 12% 80%, rgba(244, 114, 182, 0.08), transparent 60%),
+    #04030f;
+  color: #cfe9ff;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.home-inner { max-width: 1180px; margin: 0 auto; padding: 7vh 28px 80px; }
+
+/* hero */
+.hero { text-align: center; padding: 4vh 0 2vh; }
+.hero .kicker { font-size: 12px; letter-spacing: 0.5em; color: #8aa6c8; text-transform: uppercase; }
+.hero h1 {
+  font-family: "Iowan Old Style", Georgia, serif; font-weight: 500;
+  font-size: clamp(40px, 8vw, 86px); line-height: 1.02; margin: 14px 0 0; letter-spacing: 0.02em;
+  background: linear-gradient(100deg, #6ee7ff, #c084fc 55%, #f472b6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 60px rgba(110, 231, 255, 0.25);
+}
+.hero p { max-width: 680px; margin: 22px auto 0; font-size: 15px; line-height: 1.7; color: #aab8d4; }
+.hero .stats { display: flex; gap: 28px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+.hero .stat b { font-size: 22px; color: #6ee7ff; font-family: "Iowan Old Style", Georgia, serif; }
+.hero .stat span { display: block; font-size: 10px; letter-spacing: 0.18em; color: #7a87a6; text-transform: uppercase; margin-top: 2px; }
+
+/* economy band */
+.economy { margin: 56px 0 10px; }
+.economy h2, .grid-title { font-family: "Iowan Old Style", Georgia, serif; font-weight: 500; font-size: 24px; color: #e8f3ff; letter-spacing: 0.04em; }
+.economy > p { color: #97a6c4; font-size: 13px; line-height: 1.6; margin: 8px 0 22px; max-width: 760px; }
+.flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.flow .step {
+  border: 1px solid rgba(110, 231, 255, 0.16); border-radius: 12px; padding: 16px;
+  background: rgba(10, 14, 30, 0.5); backdrop-filter: blur(6px);
+}
+.flow .step .n { font-size: 11px; letter-spacing: 0.2em; color: #6ee7ff; }
+.flow .step h4 { margin: 8px 0 4px; font-size: 15px; color: #e8f3ff; }
+.flow .step p { font-size: 12px; line-height: 1.55; color: #92a1bf; }
+
+/* cards */
+.grid-title { margin: 56px 0 18px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 20px; }
+.card {
+  position: relative; display: flex; flex-direction: column; text-decoration: none; color: inherit;
+  border: 1px solid rgba(140, 180, 255, 0.14); border-radius: 16px; overflow: hidden;
+  background: rgba(9, 12, 26, 0.6); transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+}
+.card:hover { transform: translateY(-4px); }
+.card .preview { position: relative; aspect-ratio: 16 / 9; background: #04030f; overflow: hidden; }
+.card .preview video, .card .preview .poster {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: transform 0.4s; filter: saturate(1.1);
+}
+.card:hover .preview video { transform: scale(1.06); }
+.card .preview .preview-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 0; display: block; pointer-events: none;
+}
+/* Ambient preview: the HTML scene renders at a full-screen "virtual" size
+   (so its HUD text is correctly proportioned) and is transform-scaled down to
+   the card by ScenePreview — width/height/transform come from inline style. */
+.card .preview .preview-frame {
+  position: absolute; top: 0; left: 0; border: 0; display: block;
+  pointer-events: none; background: #04030f;
+}
+.card .preview .poster {
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 45%, rgba(110,231,255,0.12), transparent 60%), #06060f;
+  font-size: 11px; letter-spacing: 0.2em; color: #5b6a88; text-transform: uppercase;
+}
+.card .body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.card .name { font-family: "Iowan Old Style", Georgia, serif; font-size: 22px; letter-spacing: 0.04em; }
+.card .skill { font-size: 12.5px; line-height: 1.45; color: #cdd9f0; }
+.card .blurb { font-size: 11.5px; line-height: 1.5; color: #8b9ab8; }
+.card .mathline { font-size: 10px; line-height: 1.5; color: #6f7d9c; border-left: 2px solid; padding-left: 8px; margin: 2px 0; }
+.card .caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 6px; }
+.card .cap {
+  font-size: 10px; padding: 3px 7px; border-radius: 999px; border: 1px solid rgba(140,180,255,0.18);
+  color: #aebbd6; background: rgba(255,255,255,0.02); white-space: nowrap;
+}
+.card .cap b { color: #34d399; font-weight: 600; }
+.card .enter { margin-top: 10px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.85; }
+.card-links { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(110,231,255,0.12); }
+.card-link { font-size: 10px; letter-spacing: 0.08em; text-decoration: none; opacity: 0.9; }
+.card-link.cockpit { color: #6ee7ff; }
+.card-link.docs { color: #8aa6c8; }
+.card-link.github { color: #c8b6ff; }
+.card-link:hover { text-decoration: underline; }
+.card .testbadge { position: absolute; top: 12px; right: 12px; font-size: 10px; letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: 999px; background: rgba(4,6,14,0.7); border: 1px solid rgba(52,211,153,0.4); color: #34d399; }
+
+.home-footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid rgba(140,180,255,0.1);
+  display: flex; gap: 18px; flex-wrap: wrap; font-size: 11px; color: #6f7d9c; letter-spacing: 0.06em; }
+.home-footer a { color: #8aa6c8; text-decoration: none; }
+.home-footer a:hover { color: #cfe0ff; text-decoration: underline; }
+
+/* scene-view back link */
+.scene-back {
+  position: fixed; left: 22px; bottom: 20px; z-index: 10; font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #8aa6c8; text-decoration: none; padding: 6px 12px;
+  border: 1px solid rgba(110,231,255,0.25); border-radius: 8px; background: rgba(8,10,24,0.45); backdrop-filter: blur(4px);
+}
+.scene-back:hover { color: #6ee7ff; border-color: #6ee7ff; }
+.scene-cockpit {
+  position: fixed; left: 22px; bottom: 58px; z-index: 10; font-size: 11px; letter-spacing: 0.1em;
+  color: #6ee7ff; text-decoration: none; padding: 8px 14px; max-width: min(420px, 70vw);
+  border: 1px solid rgba(110,231,255,0.45); border-radius: 8px;
+  background: rgba(8,10,24,0.72); backdrop-filter: blur(6px);
+  box-shadow: 0 0 24px rgba(110,231,255,0.15);
+}
+.scene-cockpit:hover { border-color: #6ee7ff; background: rgba(12,18,36,0.85); }

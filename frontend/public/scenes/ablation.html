@@ -1,0 +1,537 @@
+<meta charset="utf-8">
+<title>ABLATION — systemic cascade-risk oracle</title>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0a0f16; --line:#101826;
+    --emerald:#1fff9f; --cyan:#22d3ee; --red:#ff2d4a;
+    --amber:#ffb53d; --hot:#fff2d0;
+    --ink:#cfe9e0; --dim:#5f7a78; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 48px}
+  .head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .logo{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.32em;
+    color:var(--amber);text-shadow:0 0 18px #ffb53d88}
+  h1{font-size:25px;font-weight:600;margin:6px 0 2px;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:14px;max-width:700px;line-height:1.6;margin:0 0 18px}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;background:#04060a;overflow:hidden}
+  canvas{display:block;width:100%}
+  #pile{height:480px}
+  .badge{position:absolute;top:12px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:#080d13cc;backdrop-filter:blur(3px);z-index:2}
+  #status{left:12px;color:var(--emerald);transition:color .25s,border-color .25s,text-shadow .25s}
+  #status.warm{color:var(--amber);border-color:#ffb53d55;text-shadow:0 0 14px #ffb53d77}
+  #status.crit{color:var(--hot);border-color:#fff2d088;text-shadow:0 0 18px #fff2d0cc}
+  #legend{right:12px;color:var(--dim);display:flex;gap:12px;align-items:center}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+  .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 2px 0}
+  button{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink);
+    background:#0c1420;border:1px solid var(--line);border-radius:9px;padding:9px 14px;cursor:pointer;transition:.15s}
+  button:hover{border-color:#ffb53d55;color:#fff}
+  button.primary{color:var(--amber);border-color:#ffb53d55}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent}
+  .seg button.on{background:#261a10;color:var(--amber)}
+  .slider{flex:1;min-width:200px;display:flex;align-items:center;gap:12px}
+  input[type=range]{flex:1;accent-color:var(--amber)}
+  .read{font-family:var(--mono);font-size:13px;color:#fff;min-width:72px}
+  .read small{color:var(--dim)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .stat{border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:12px 14px}
+  .stat .k{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .stat .v{font-family:var(--mono);font-size:21px;margin-top:5px;color:#fff}
+  .stat .v.hot{color:var(--amber)}
+  .stat .v.big{color:var(--red)}
+  #hist{height:220px}
+  .foot{margin-top:22px;color:var(--dim);font-size:13px;line-height:1.7;max-width:780px}
+  .foot b{color:var(--ink);font-weight:600}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+  @media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <span class="logo">ABLATION</span>
+    <span class="tag">AIMarket oracle family · physics: self-organized criticality</span>
+  </div>
+  <h1>How a single grain ignites a system-wide collapse — and how often the giant one comes</h1>
+  <p class="sub">A live Bak–Tang–Wiesenfeld sandpile. Grains fall one by one onto a lattice of services; each
+    site holds <b style="color:var(--amber)">4</b> before it topples to its neighbours. For a long calm it
+    absorbs everything — then one grain tips a critical site and a <b style="color:var(--red)">chain avalanche</b>
+    rips across the whole system in an instant. Real abelian toppling, real avalanche sizes binned into a
+    log-log power law <b style="color:var(--emerald)">P(s) ~ s<sup>−τ</sup></b>. No mocks.</p>
+
+  <div class="stage">
+    <div id="status" class="badge">absorbing · stable</div>
+    <div id="legend" class="badge">
+      <span><span class="dot" style="background:#ffb53d"></span>charged</span>
+      <span><span class="dot" style="background:#fff2d0"></span>toppling</span>
+    </div>
+    <canvas id="pile"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="play" class="primary">▶ replay cascade</button>
+    <div class="seg" id="speed">
+      <button data-s="1" class="on">1×</button>
+      <button data-s="3">3×</button>
+      <button data-s="8">8×</button>
+    </div>
+    <div class="slider">
+      <input type="range" id="rate" min="0" max="100" value="100" />
+      <span class="read" id="rateread">drip <small>auto</small></span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">grains dropped</div><div class="v" id="sg">0</div></div>
+    <div class="stat"><div class="k">last avalanche</div><div class="v hot" id="sa">0</div></div>
+    <div class="stat"><div class="k">τ exponent (fit)</div><div class="v" id="st">—</div></div>
+    <div class="stat"><div class="k">biggest ever</div><div class="v big" id="sb">0</div></div>
+  </div>
+
+  <div class="stage" style="margin-top:14px">
+    <div class="badge" style="left:12px;color:var(--dim)">avalanche distribution
+      &nbsp;·&nbsp; <span style="color:var(--amber)">log N(s)</span>
+      vs <span style="color:var(--amber)">log s</span>
+      &nbsp;·&nbsp; <span style="color:var(--emerald)">power-law fit s<sup>−τ</sup></span></div>
+    <canvas id="hist"></canvas>
+  </div>
+
+  <p class="foot">
+    <b>What an agent buys.</b> ABLATION answers a question no single-service health check can: not <i>is this node
+    up</i>, but <i>is the whole dependency mesh poised at criticality, where one routine failure detonates a
+    system-wide cascade</i>. ARGUS-3 reads <span class="tag">τ</span> and the tail mass before committing a paid,
+    multi-step task to a fan-out of MCP services — a heavy tail (small τ) means a rare giant avalanche is overdue,
+    so it throttles concurrency, stages escrow, and keeps a fallback warm. <b>Verifiable:</b> the grain sequence is
+    seeded and deterministic, each toppling is the abelian sandpile rule, so any verifier replays the exact drops
+    and reproduces every avalanche size — and the fitted τ — bit-for-bit. Criticality is measured, not asserted.
+  </p>
+</div>
+
+<script>
+(function(){
+  // ---- deterministic PRNG (mulberry32) ----
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+  // ---- sandpile state ----
+  const L=33;              // lattice side (odd -> has a center)
+  const TH=4;              // toppling threshold
+  let grid, rng, seedN=20260622>>>0;
+  let totalGrains=0, lastAval=0, biggestAval=0, avalCount=0;
+  // avalanche sizes binned into logarithmic bins -> real log-log histogram
+  const NB=22;             // number of log bins
+  let bins;                // counts per bin
+  function binIndex(s){ return Math.min(NB-1, Math.floor(Math.log(s)/Math.log(1.55))); } // s>=1
+  function binCenter(b){ return Math.pow(1.55, b+0.5); }
+  function binWidth(b){ const lo=Math.pow(1.55,b),hi=Math.pow(1.55,b+1); return hi-lo; }
+
+  function resetPile(seed){
+    rng=mulberry32(seed);
+    grid=new Int8Array(L*L);
+    // start from a non-trivial but sub-critical seed so it self-organizes quickly
+    for(let i=0;i<L*L;i++) grid[i]=Math.floor(rng()*3); // 0..2
+    bins=new Float64Array(NB);
+    totalGrains=0; lastAval=0; biggestAval=0; avalCount=0;
+    tauFit=null; lineFit=null;
+  }
+
+  // one full "drive" step: drop a grain at a random site, then relax to stable.
+  // returns the avalanche size = number of topplings in this relaxation.
+  let topplesThisStep=[];   // [idx,...] order of topplings
+  let waveOfThisStep=[];     // wave depth per toppling (for branching-finger render)
+  function driveOnce(){
+    const x=Math.floor(rng()*L), y=Math.floor(rng()*L);
+    const start=y*L+x;
+    grid[start]++; totalGrains++;
+    topplesThisStep.length=0; waveOfThisStep.length=0;
+    // wave-by-wave relaxation (abelian -> total size is order-independent)
+    let frontier=[];
+    if(grid[start]>=TH) frontier.push(start);
+    let size=0, wave=0;
+    while(frontier.length){
+      const next=[];
+      for(let q=0;q<frontier.length;q++){
+        const idx=frontier[q];
+        if(grid[idx]<TH) continue;       // may have been processed already this wave
+        grid[idx]-=TH;
+        size++;
+        topplesThisStep.push(idx);
+        waveOfThisStep.push(wave);
+        const cx=idx%L, cy=(idx-cx)/L;
+        // 4-neighbours, open boundary (grains at the edge leave the system)
+        if(cx>0){ const n=idx-1; if(++grid[n]>=TH) next.push(n); }
+        if(cx<L-1){ const n=idx+1; if(++grid[n]>=TH) next.push(n); }
+        if(cy>0){ const n=idx-L; if(++grid[n]>=TH) next.push(n); }
+        if(cy<L-1){ const n=idx+L; if(++grid[n]>=TH) next.push(n); }
+      }
+      frontier=next; wave++;
+      if(wave>4000) break; // safety
+    }
+    if(size>0){
+      lastAval=size; avalCount++;
+      if(size>biggestAval) biggestAval=size;
+      bins[binIndex(size)]++;
+      refitTau();
+    }
+    return {start, size};
+  }
+
+  // ---- power-law exponent via OLS on log-log binned density ----
+  let tauFit=null, lineFit=null;
+  function refitTau(){
+    let n=0,sx=0,sy=0,sxx=0,sxy=0;
+    for(let b=0;b<NB;b++){
+      if(bins[b]<=0) continue;
+      const c=binCenter(b);
+      if(c<2) continue;            // drop the s=1 bin (boundary effects bias the fit)
+      const density=bins[b]/binWidth(b);
+      const X=Math.log(c), Y=Math.log(density);
+      n++; sx+=X; sy+=Y; sxx+=X*X; sxy+=X*Y;
+    }
+    if(n>=3){
+      const denom=(n*sxx - sx*sx);
+      if(Math.abs(denom)>1e-9){
+        const slope=(n*sxy - sx*sy)/denom;
+        const intercept=(sy - slope*sx)/n;
+        tauFit=-slope;                 // P(s)~s^-tau -> slope = -tau
+        lineFit={slope,intercept};
+      }
+    }
+  }
+
+  // ---- canvases ----
+  const pC=document.getElementById('pile'),px=pC.getContext('2d');
+  const hC=document.getElementById('hist'),hx=hC.getContext('2d');
+  let PW,PH,HW,HH,cell,ox,oy;
+  function fit(){const dpr=Math.min(2,window.devicePixelRatio||1);
+    let r=pC.getBoundingClientRect();PW=r.width;PH=r.height;pC.width=PW*dpr;pC.height=PH*dpr;px.setTransform(dpr,0,0,dpr,0,0);
+    r=hC.getBoundingClientRect();HW=r.width;HH=r.height;hC.width=HW*dpr;hC.height=HH*dpr;hx.setTransform(dpr,0,0,dpr,0,0);
+    cell=Math.floor(Math.min(PW,PH)*0.92/L);
+    ox=(PW-cell*L)/2; oy=(PH-cell*L)/2;}
+
+  // ---- effects ----
+  let parts=[], rings=[], flash=0, shake=0, glowHeat=0;
+  let activeTopples=[];     // {idx, born, wave} freshly toppled cells, fade hot
+  function spawnEmbers(cx,cy,n,col){for(let i=0;i<n;i++){const a=Math.random()*6.2832,s=.5+Math.random()*2.2;
+    parts.push({x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s-0.6,life:1,col});}}
+
+  fit(); resetPile(seedN);
+  window.addEventListener('resize',fit);
+
+  // ---- cinematic playback ----
+  let speed=1, phase='calm', t0=null, manual=false, manualRate=1;
+  let cascadeQueue=null, cascadeI=0, cascadeStart=0, climaxFired=false;
+  const DUR={calm:5200, hold:600, after:3600};
+  const DRIP=140;          // grains/sec during the calm load
+  let lastDrip=0, calmStartGrains=0;
+
+  function setStatus(txt,cls){const s=document.getElementById('status');s.textContent=txt;s.className='badge '+(cls||'');}
+
+  function resetCinematic(){t0=null;phase='calm';flash=0;shake=0;glowHeat=0;parts=[];rings=[];activeTopples=[];
+    cascadeQueue=null;cascadeI=0;climaxFired=false;lastDrip=0;}
+
+  // Find a drop that produces a BIG avalanche, so the climax always lands.
+  // Probe forward on the live grid (restoring each time), then commit the best
+  // choice progressively during the cascade animation.
+  function stageClimax(){
+    const save=Int8Array.from(grid);
+    const saveTotal=totalGrains, saveLast=lastAval, saveBig=biggestAval,
+          saveCount=avalCount, saveBins=Float64Array.from(bins),
+          saveTau=tauFit, saveLine=lineFit?{...lineFit}:null;
+    let best=null;
+    for(let tries=0;tries<26;tries++){
+      grid.set(save); totalGrains=saveTotal;lastAval=saveLast;biggestAval=saveBig;
+      avalCount=saveCount;bins.set(saveBins);tauFit=saveTau;lineFit=saveLine;
+      const r=driveOnce();
+      if(!best || r.size>best.size){
+        best={size:r.size, start:r.start,
+              topples:topplesThisStep.slice(), waves:waveOfThisStep.slice(),
+              gridAfter:Int8Array.from(grid),
+              total:totalGrains,last:lastAval,big:biggestAval,count:avalCount,
+              binsAfter:Float64Array.from(bins),tau:tauFit,line:lineFit?{...lineFit}:null};
+      }
+      if(r.size>60) break; // good enough
+    }
+    // restore the pre-climax state; the chosen drop is replayed by the animation
+    grid.set(save); totalGrains=saveTotal;lastAval=saveLast;biggestAval=saveBig;
+    avalCount=saveCount;bins.set(saveBins);tauFit=saveTau;lineFit=saveLine;
+    return best;
+  }
+
+  function dropManual(){
+    const r=driveOnce();
+    for(let i=0;i<topplesThisStep.length;i++){
+      activeTopples.push({idx:topplesThisStep[i],born:performance.now()+i*0.4,wave:waveOfThisStep[i]});
+    }
+    glowHeat=Math.min(1,glowHeat+r.size*0.01);
+    if(r.size>30){ flash=Math.min(1,r.size/120); shake=Math.min(18,r.size*0.25);
+      histFlash=1; histFlashBin=binIndex(r.size); }
+  }
+
+  function tick(ts){
+    if(!manual){
+      if(t0===null){t0=ts;calmStartGrains=totalGrains;lastDrip=ts;}
+      const e=ts-t0;
+
+      if(phase==='calm'){
+        // slow calm loading: drip grains, absorb small avalanches, heat rises (false safety)
+        const want=Math.floor((e/1000)*DRIP*speed);
+        const have=totalGrains-calmStartGrains;
+        let drops=Math.min(want-have, 6);
+        while(drops-->0){
+          const r=driveOnce();
+          for(let i=0;i<topplesThisStep.length;i++){
+            activeTopples.push({idx:topplesThisStep[i],born:ts+i*0.3,wave:waveOfThisStep[i]});
+          }
+          if(r.size>0) glowHeat=Math.min(0.55, glowHeat+r.size*0.004);
+        }
+        glowHeat*=0.985;
+        const frac=Math.min(1,e/DUR.calm);
+        glowHeat=Math.max(glowHeat, frac*0.42);
+        if(e>DUR.calm){
+          cascadeQueue=stageClimax();
+          phase='hold'; t0=ts; climaxFired=false;
+        }
+      }
+      else if(phase==='hold'){
+        // held breath: the tipping grain lands, glow spikes
+        glowHeat=Math.min(1,glowHeat+0.03);
+        if(!climaxFired){ grid[cascadeQueue.start]++; totalGrains++; climaxFired=true; }
+        if(ts-t0>DUR.hold){
+          phase='cascade'; t0=ts; cascadeI=0; cascadeStart=ts;
+          // GOOSEBUMPS: detonation
+          flash=1; shake=Math.min(22, 8+cascadeQueue.size*0.18);
+          const sx0=ox+(cascadeQueue.start%L)*cell+cell/2, sy0=oy+((cascadeQueue.start/L|0))*cell+cell/2;
+          rings.push({x:sx0,y:sy0,r:6,life:1,col:'#fff2d0',sp:11});
+          rings.push({x:sx0,y:sy0,r:6,life:1,col:'#ffb53d',sp:7});
+        }
+      }
+      else if(phase==='cascade'){
+        // play out the REAL toppling sequence fast — white-hot branching fingers
+        const elapsed=ts-cascadeStart;
+        const cdur=Math.max(650, Math.min(2200, cascadeQueue.size*9))/speed;
+        const target=Math.floor(Math.pow(Math.min(1,elapsed/cdur),0.82)*cascadeQueue.topples.length);
+        while(cascadeI<target){
+          const idx=cascadeQueue.topples[cascadeI];
+          const w=cascadeQueue.waves[cascadeI];
+          grid[idx]-=TH;
+          const cxc=idx%L, cyc=(idx-(idx%L))/L;
+          if(cxc>0)grid[idx-1]++; if(cxc<L-1)grid[idx+1]++;
+          if(cyc>0)grid[idx-L]++; if(cyc<L-1)grid[idx+L]++;
+          activeTopples.push({idx,born:ts,wave:w});
+          if((cascadeI%5)===0){
+            spawnEmbers(ox+cxc*cell+cell/2, oy+cyc*cell+cell/2, 2, w%2?'#fff2d0':'#ffb53d');
+          }
+          cascadeI++;
+        }
+        glowHeat=1;
+        if(cascadeI>=cascadeQueue.topples.length){
+          // commit the recorded stats for this avalanche
+          grid.set(cascadeQueue.gridAfter);
+          totalGrains=cascadeQueue.total; lastAval=cascadeQueue.size;
+          biggestAval=cascadeQueue.big; avalCount=cascadeQueue.count;
+          bins.set(cascadeQueue.binsAfter); tauFit=cascadeQueue.tau; lineFit=cascadeQueue.line;
+          histFlash=1; histFlashBin=binIndex(cascadeQueue.size);
+          phase='after'; t0=ts;
+        }
+      }
+      else if(phase==='after'){
+        glowHeat*=0.95;
+        if(ts-t0>DUR.after){
+          seedN=(seedN*1664525+1013904223)>>>0;
+          resetPile(seedN); resetCinematic(); t0=ts; phase='calm'; calmStartGrains=0; lastDrip=ts;
+        }
+      }
+    } else {
+      if(manualRate>0){
+        const interval=1000/(manualRate*manualRate*0.9+0.5);
+        if(ts-lastDrip>interval){ dropManual(); lastDrip=ts; }
+      }
+      glowHeat*=0.97;
+    }
+
+    draw(ts);
+    requestAnimationFrame(tick);
+  }
+
+  // ---- color ramp for stable cells ----
+  function cellColor(v){
+    if(v<=0) return null;
+    if(v===1) return 'rgba(28,52,60,0.85)';
+    if(v===2) return 'rgba(120,90,40,0.92)';
+    return 'rgba(255,181,61,0.95)'; // 3 = charged, near-critical
+  }
+
+  let histFlash=0, histFlashBin=-1;
+
+  function draw(ts){
+    const dpr=Math.min(2,window.devicePixelRatio||1);
+    px.setTransform(dpr,0,0,dpr,0,0);
+    px.clearRect(0,0,PW,PH);
+    let sx=0,sy=0; if(shake>0){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake*=0.87;if(shake<.4)shake=0;}
+    px.save(); px.translate(sx,sy);
+
+    // faint grid backdrop
+    px.strokeStyle='rgba(34,211,238,0.035)';px.lineWidth=1;
+    for(let gx=0;gx<PW;gx+=46){px.beginPath();px.moveTo(gx,0);px.lineTo(gx,PH);px.stroke();}
+    for(let gy=0;gy<PH;gy+=46){px.beginPath();px.moveTo(0,gy);px.lineTo(PW,gy);px.stroke();}
+
+    // warm under-glow rising from the lattice (tension / heat)
+    if(glowHeat>0.01){
+      const g=px.createRadialGradient(ox+cell*L/2,oy+cell*L/2,cell*2,ox+cell*L/2,oy+cell*L/2,cell*L*0.75);
+      g.addColorStop(0,`rgba(255,${Math.round(120+90*glowHeat)},${Math.round(40*glowHeat)},${0.10+0.32*glowHeat})`);
+      g.addColorStop(1,'transparent');
+      px.fillStyle=g; px.fillRect(0,0,PW,PH);
+    }
+
+    // ---- stable cells ----
+    const r=Math.max(1,cell-1);
+    for(let i=0;i<L*L;i++){
+      const v=grid[i]; if(v<=0) continue;
+      const cx=i%L, cy=(i-(i%L))/L;
+      px.fillStyle=cellColor(v);
+      if(v>=3){ px.shadowBlur=8+6*glowHeat; px.shadowColor='#ffb53d'; } else px.shadowBlur=0;
+      px.fillRect(ox+cx*cell+0.5, oy+cy*cell+0.5, r, r);
+    }
+    px.shadowBlur=0;
+
+    // ---- freshly-toppled white-hot fingers ----
+    px.globalCompositeOperation='lighter';
+    for(let k=activeTopples.length-1;k>=0;k--){
+      const a=activeTopples[k];
+      const life=1-(ts-a.born)/520;
+      if(life<=0){ activeTopples.splice(k,1); continue; }
+      const cx=a.idx%L, cy=(a.idx-(a.idx%L))/L;
+      const px0=ox+cx*cell+cell/2, py0=oy+cy*cell+cell/2;
+      const heat=Math.max(0,life);
+      px.globalAlpha=heat;
+      px.fillStyle = heat>0.6 ? '#fff2d0' : '#ffb53d';
+      px.shadowBlur=14*heat; px.shadowColor='#ffd98a';
+      px.beginPath(); px.arc(px0,py0,cell*(0.55+0.5*heat),0,6.28); px.fill();
+    }
+    px.globalAlpha=1; px.shadowBlur=0;
+
+    // ---- embers ----
+    for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.03;p.life-=0.02;
+      if(p.life<=0){parts.splice(i,1);continue;}
+      px.globalAlpha=Math.max(0,p.life);px.fillStyle=p.col;px.shadowBlur=8;px.shadowColor=p.col;
+      px.beginPath();px.arc(p.x,p.y,1.5*p.life+0.4,0,6.28);px.fill();}
+    px.globalAlpha=1; px.shadowBlur=0;
+
+    // ---- shockwave rings ----
+    for(let i=rings.length-1;i>=0;i--){const rg=rings[i];rg.r+=rg.sp;rg.life-=0.02;
+      if(rg.life<=0){rings.splice(i,1);continue;}
+      px.globalAlpha=Math.max(0,rg.life)*0.85;px.strokeStyle=rg.col;px.lineWidth=2.2;
+      px.shadowBlur=18;px.shadowColor=rg.col;
+      px.beginPath();px.arc(rg.x,rg.y,rg.r,0,6.28);px.stroke();}
+    px.globalAlpha=1;px.shadowBlur=0;
+    px.globalCompositeOperation='source-over';
+
+    // vignette + flash
+    const vg=px.createRadialGradient(PW/2,PH/2,PH*0.3,PW/2,PH/2,PH*0.95);
+    vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(2,4,8,0.75)');px.fillStyle=vg;px.fillRect(-20,-20,PW+40,PH+40);
+    if(flash>0){px.fillStyle=`rgba(255,${Math.round(220+30*flash)},${Math.round(180*flash)},${flash*0.42})`;
+      px.fillRect(-20,-20,PW+40,PH+40);flash*=0.87;if(flash<.02)flash=0;}
+    px.restore();
+
+    // ---- status + stats ----
+    if(manual){ setStatus('manual drip','warm'); }
+    else if(phase==='calm'){ glowHeat>0.34?setStatus('charging · self-organizing','warm'):setStatus('absorbing · stable',''); }
+    else if(phase==='hold'){ setStatus('critical site tipped','crit'); }
+    else if(phase==='cascade'){ setStatus('▲ CHAIN AVALANCHE','crit'); }
+    else { setStatus('aftermath · embers cooling','warm'); }
+
+    document.getElementById('sg').textContent=fmt(totalGrains);
+    document.getElementById('sa').textContent=fmt(lastAval);
+    document.getElementById('st').textContent= tauFit? tauFit.toFixed(2): '—';
+    document.getElementById('sb').textContent=fmt(biggestAval);
+
+    drawHist(ts);
+  }
+
+  function fmt(n){ return n>=1000? (n/1000).toFixed(n>=10000?0:1)+'k' : (''+n); }
+
+  function drawHist(ts){
+    hx.clearRect(0,0,HW,HH);
+    const pl={l:40,r:16,t:18,b:26}, W=HW-pl.l-pl.r, H=HH-pl.t-pl.b;
+    const xMaxLog=Math.log10(Math.max(10, Math.pow(1.55,NB)));
+    let yMax=1; for(let b=0;b<NB;b++){ if(bins[b]>0){ const d=bins[b]/binWidth(b); if(Math.log10(d+1)>yMax) yMax=Math.log10(d+1); } }
+    yMax=Math.max(1.2,yMax);
+    const X=lx=> pl.l + (lx/xMaxLog)*W;          // lx = log10(s)
+    const Y=ly=> pl.t + (1-ly/yMax)*H;           // ly = log10(density)
+
+    // frame + log gridlines
+    hx.strokeStyle='rgba(40,55,70,0.25)';hx.lineWidth=1;hx.strokeRect(pl.l,pl.t,W,H);
+    hx.font='10px ui-monospace,monospace';
+    for(let p=0;p<=Math.ceil(xMaxLog);p++){ const xx=X(p); if(xx>HW-12)continue;
+      hx.globalAlpha=0.5;hx.strokeStyle='rgba(40,55,70,0.18)';hx.beginPath();hx.moveTo(xx,pl.t);hx.lineTo(xx,pl.t+H);hx.stroke();hx.globalAlpha=1;
+      hx.fillStyle='#5f7a78';hx.fillText('10'+sup(p), xx-6, HH-8); }
+    for(let p=0;p<=Math.ceil(yMax);p++){ const yy=Y(p); if(yy<pl.t-1)continue;
+      hx.globalAlpha=0.5;hx.strokeStyle='rgba(40,55,70,0.18)';hx.beginPath();hx.moveTo(pl.l,yy);hx.lineTo(pl.l+W,yy);hx.stroke();hx.globalAlpha=1;
+      hx.fillStyle='#5f7a78';hx.fillText('10'+sup(p), 6, yy+3); }
+
+    // ---- power-law fit line ----
+    if(lineFit){
+      hx.strokeStyle='rgba(31,255,159,0.85)';hx.lineWidth=2;hx.shadowBlur=8;hx.shadowColor='#1fff9f';
+      hx.beginPath(); let started=false;
+      for(let lx=0.1; lx<=xMaxLog; lx+=0.05){
+        const lnS=lx*Math.LN10;
+        const ld=(lineFit.intercept + lineFit.slope*lnS)/Math.LN10;
+        const xx=X(lx), yy=Y(ld);
+        if(yy<pl.t-2||yy>pl.t+H+2){ started=false; continue; }
+        if(!started){ hx.moveTo(xx,yy); started=true; } else hx.lineTo(xx,yy);
+      }
+      hx.stroke();hx.shadowBlur=0;
+    }
+
+    // ---- real binned points ----
+    histFlash*=0.94; if(histFlash<0.02) histFlash=0;
+    for(let b=0;b<NB;b++){
+      if(bins[b]<=0) continue;
+      const c=binCenter(b), d=bins[b]/binWidth(b);
+      const xx=X(Math.log10(c)), yy=Y(Math.log10(d));
+      const isTail=b>=NB-7;
+      const flaring=(b===histFlashBin)&&histFlash>0;
+      let col= isTail? '#ff2d4a' : '#ffb53d', rad=2.6;
+      if(flaring){ col='#fff2d0'; rad=3+4*histFlash; }
+      hx.fillStyle=col; hx.shadowBlur=flaring?20:(isTail?12:6); hx.shadowColor=col;
+      hx.beginPath(); hx.arc(xx,yy,rad,0,6.28); hx.fill();
+    }
+    hx.shadowBlur=0;
+
+    if(tauFit){
+      hx.fillStyle='#1fff9f';hx.font='11px ui-monospace,monospace';
+      hx.fillText('τ ≈ '+tauFit.toFixed(2), pl.l+W-78, pl.t+16);
+    }
+    hx.fillStyle='#5f7a78';hx.font='10px ui-monospace,monospace';
+    hx.fillText('avalanche size s →', pl.l+4, pl.t+12);
+  }
+  function sup(n){ const m={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+    return (''+n).split('').map(d=>m[d]||d).join(''); }
+
+  // ---- controls ----
+  document.querySelectorAll('#speed button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); speed=+b.dataset.s; }));
+
+  const rate=document.getElementById('rate');
+  rate.addEventListener('input',()=>{
+    manual=true; manualRate=+rate.value/100;
+    document.getElementById('rateread').innerHTML= manualRate<=0? 'drip <small>paused</small>'
+      : 'drip <small>'+Math.round(manualRate*100)+'%</small>';
+  });
+
+  document.getElementById('play').addEventListener('click',()=>{
+    manual=false;
+    document.getElementById('rateread').innerHTML='drip <small>auto</small>';
+    rate.value=100;
+    seedN=(seedN*1664525+1013904223)>>>0;
+    resetPile(seedN); resetCinematic();
+  });
+
+  requestAnimationFrame(tick);
+})();
+</script>
