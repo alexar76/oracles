@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Turing — Blue-noise</title>
+<style>
+  html,body{margin:0;height:100%;background:#04030f;overflow:hidden}
+  canvas{display:block}
+  .ui{position:fixed;left:28px;top:22px;font-family:"Iowan Old Style",Georgia,serif;color:#cfe9ff;pointer-events:none;text-shadow:0 0 18px rgba(110,231,255,.5)}
+  .ui h1{margin:0;font-size:30px;letter-spacing:.4em;font-weight:500;background:linear-gradient(90deg,#6ee7ff,#c084fc,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ui p{margin:.5em 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.22em;color:#8aa6c8;opacity:.85}
+  .hud{position:fixed;right:26px;bottom:20px;font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.12em;color:#8aa6c8;opacity:.8;text-align:right;pointer-events:none;white-space:pre}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><h1>TURING</h1><p>BLUE-NOISE · STRUCTURED SAMPLING (EVEN, NEVER CLUMPED)</p></div>
+<div class="hud" id="hud"></div>
+<script>
+const cv=document.getElementById("c"), x=cv.getContext("2d"), hud=document.getElementById("hud");
+let W,H,DPR,pts=[],neb,stars=[];
+function rnd(a,b){return a+Math.random()*(b-a);}
+function buildBlueNoise(n){
+  // Mitchell best-candidate: each new point is the candidate (of K) farthest from all existing
+  const p=[], K=12;
+  p.push([rnd(0,W),rnd(0,H)]);
+  for(let i=1;i<n;i++){
+    let best=null,bd=-1;
+    for(let k=0;k<K;k++){
+      const cx=rnd(0,W),cy=rnd(0,H); let dmin=1e9;
+      for(let j=0;j<p.length;j++){const dx=cx-p[j][0],dy=cy-p[j][1],d=dx*dx+dy*dy; if(d<dmin)dmin=d;}
+      if(dmin>bd){bd=dmin; best=[cx,cy];}
+    }
+    p.push(best);
+  }
+  return p.map(q=>({x:q[0],y:q[1],bx:q[0],by:q[1],ph:Math.random()*6.28,
+    c:[ [110,231,255],[192,132,252],[244,114,182] ][Math.floor(Math.random()*3)]}));
+}
+function resize(){
+  DPR=Math.min(2,devicePixelRatio||1); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+"px"; cv.style.height=H+"px"; x.setTransform(DPR,0,0,DPR,0,0);
+  const n=Math.min(900,Math.round(W*H/2600));
+  pts=buildBlueNoise(n);
+  stars=[]; for(let i=0;i<200;i++)stars.push({x:Math.random()*W,y:Math.random()*H,z:Math.random()*.8+.2,p:Math.random()*6.28});
+  neb=document.createElement("canvas"); neb.width=200; neb.height=200;
+}
+addEventListener("resize",resize); resize();
+
+function drawNebula(t){
+  const g=neb.getContext("2d"); g.clearRect(0,0,200,200); g.globalCompositeOperation="lighter";
+  const blobs=[["#16324a",70],["#2a1452",62],["#3f1444",54],["#0d2a40",66]];
+  for(let i=0;i<blobs.length;i++){const a=t*0.00006*(i+1),bx=100+Math.cos(a+i)*72,by=100+Math.sin(a*1.2+i)*72;
+    const rg=g.createRadialGradient(bx,by,0,bx,by,blobs[i][1]); rg.addColorStop(0,blobs[i][0]); rg.addColorStop(1,"transparent");
+    g.fillStyle=rg; g.beginPath(); g.arc(bx,by,blobs[i][1],0,6.2832); g.fill();}
+  x.globalCompositeOperation="source-over"; x.globalAlpha=.4; x.drawImage(neb,0,0,W,H); x.globalAlpha=1;
+}
+function frame(t){
+  x.globalCompositeOperation="source-over"; x.fillStyle="#04030f"; x.fillRect(0,0,W,H);
+  drawNebula(t);
+  // stars
+  x.globalCompositeOperation="lighter";
+  for(const s of stars){x.globalAlpha=(.4+.6*Math.sin(t*.002*s.z+s.p))*s.z; x.fillStyle="#9fd8ff";
+    x.beginPath(); x.arc(s.x,s.y,s.z,0,6.2832); x.fill();}
+  x.globalAlpha=1;
+  // gentle living drift around the blue-noise lattice (shimmer)
+  for(const q of pts){ q.x=q.bx+Math.sin(t*0.0006+q.ph)*5; q.y=q.by+Math.cos(t*0.00052+q.ph)*5; }
+  // organic mesh: faint links between near neighbours (cheap: sort by x not needed at this n? do grid)
+  x.lineWidth=0.8;
+  for(let i=0;i<pts.length;i++){
+    for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=dx*dx+dy*dy;
+      if(d<5500){const a=(1-d/5500)*0.30, c=pts[i].c;
+        x.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},${a})`; x.beginPath(); x.moveTo(pts[i].x,pts[i].y); x.lineTo(pts[j].x,pts[j].y); x.stroke();}
+    }
+  }
+  // crisp glowing dots
+  for(const q of pts){const pulse=.7+.3*Math.sin(t*0.0024+q.ph), c=q.c;
+    x.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`; x.shadowBlur=14*pulse; x.shadowColor=`rgb(${c[0]},${c[1]},${c[2]})`;
+    x.beginPath(); x.arc(q.x,q.y,2.6*pulse,0,6.2832); x.fill();
+    x.fillStyle="rgba(255,255,255,.95)"; x.shadowBlur=0; x.beginPath(); x.arc(q.x,q.y,.95,0,6.2832); x.fill();}
+  x.shadowBlur=0; x.globalCompositeOperation="source-over";
+  const vg=x.createRadialGradient(W/2,H/2,Math.min(W,H)*0.32,W/2,H/2,Math.max(W,H)*0.72);
+  vg.addColorStop(0,"transparent"); vg.addColorStop(1,"rgba(2,1,8,0.82)"); x.fillStyle=vg; x.fillRect(0,0,W,H);
+  hud.textContent=`${pts.length} blue-noise samples · best-candidate\nmaximal min-distance · no clumps, no gaps`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chronos — Verifiable Delay</title>
+<style>
+  html,body{margin:0;height:100%;background:#04030f;overflow:hidden;cursor:default}
+  canvas{display:block}
+  .ui{position:fixed;left:28px;top:22px;font-family:"Iowan Old Style",Georgia,serif;
+       color:#cfe9ff;pointer-events:none;text-shadow:0 0 18px rgba(110,231,255,.5)}
+  .ui h1{margin:0;font-size:30px;letter-spacing:.42em;font-weight:500;
+         background:linear-gradient(90deg,#6ee7ff,#c084fc,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ui p{margin:.5em 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.22em;color:#8aa6c8;opacity:.85}
+  .hud{position:fixed;right:26px;bottom:20px;font-family:ui-monospace,Menlo,monospace;font-size:11px;
+       letter-spacing:.12em;color:#8aa6c8;opacity:.8;text-align:right;pointer-events:none;white-space:pre}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><h1>CHRONOS</h1><p>VERIFIABLE DELAY · PROOF OF ELAPSED SEQUENTIAL WORK</p></div>
+<div class="hud" id="hud"></div>
+<script>
+const cv=document.getElementById("c"), x=cv.getContext("2d"), hud=document.getElementById("hud");
+let W,H,DPR; const stars=[]; let neb;
+function resize(){
+  DPR=Math.min(2,devicePixelRatio||1); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+"px"; cv.style.height=H+"px"; x.setTransform(DPR,0,0,DPR,0,0);
+  stars.length=0;
+  for(let i=0;i<260;i++)stars.push({x:Math.random()*W,y:Math.random()*H,z:Math.random()*0.8+0.2,
+    p:Math.random()*6.28,c:["#6ee7ff","#c084fc","#f472b6","#dfeaff"][i%4]});
+  neb=document.createElement("canvas"); neb.width=200; neb.height=200;
+}
+addEventListener("resize",resize); resize();
+
+function drawNebula(t){
+  const g=neb.getContext("2d"); g.clearRect(0,0,200,200); g.globalCompositeOperation="lighter";
+  const blobs=[["#3a1d6e",60],["#0e3a52",70],["#5a1f55",55],["#1b2b6b",65],["#2a0f4a",50]];
+  for(let i=0;i<blobs.length;i++){
+    const a=t*0.00006*(i+1), bx=100+Math.cos(a+i)*70, by=100+Math.sin(a*1.3+i*2)*70;
+    const rg=g.createRadialGradient(bx,by,0,bx,by,blobs[i][1]);
+    rg.addColorStop(0,blobs[i][0]); rg.addColorStop(1,"transparent");
+    g.fillStyle=rg; g.beginPath(); g.arc(bx,by,blobs[i][1],0,6.2832); g.fill();
+  }
+  x.globalCompositeOperation="source-over"; x.globalAlpha=.55;
+  x.imageSmoothingEnabled=true; x.drawImage(neb,0,0,W,H); x.globalAlpha=1;
+}
+function drawStars(t){
+  x.globalCompositeOperation="lighter";
+  for(const s of stars){const tw=.5+.5*Math.sin(t*.002*s.z+s.p);
+    x.globalAlpha=tw*s.z; x.fillStyle=s.c; x.shadowBlur=6*s.z; x.shadowColor=s.c;
+    x.beginPath(); x.arc(s.x,s.y,s.z*1.3,0,6.2832); x.fill();}
+  x.globalAlpha=1; x.shadowBlur=0;
+}
+function lerpColor(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-v)*t));}
+const CY=[110,231,255],PU=[192,132,252],PK=[244,114,182];
+function ramp(t){return t<.5?lerpColor(CY,PU,t*2):lerpColor(PU,PK,(t-.5)*2);}
+
+const TURNS=7, BEADS=320; let count=0, last=0, round=0;
+function frame(t){
+  if(!last)last=t; const dt=Math.min(50,t-last); last=t;
+  x.globalCompositeOperation="source-over"; x.fillStyle="rgba(4,3,15,0.30)"; x.fillRect(0,0,W,H);
+  drawNebula(t); drawStars(t);
+
+  count+=dt*0.18; if(count>BEADS+90){count=0; round++;}
+  const shown=Math.min(BEADS,count|0);
+  const cx=W*0.5, cy=H*0.52, rot=t*0.00022, maxR=Math.min(W,H)*0.40;
+  const pts=[];
+  for(let i=0;i<shown;i++){
+    const f=i/BEADS, ang=f*TURNS*6.2832+rot, r=Math.pow(f,0.62)*maxR;
+    const px=cx+Math.cos(ang)*r, py=cy+Math.sin(ang)*r*0.42 - f*40;
+    pts.push([px,py,f]);
+  }
+  x.globalCompositeOperation="lighter";
+  for(let i=1;i<pts.length;i++){
+    const c=ramp(pts[i][2]);
+    x.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},0.5)`; x.lineWidth=1.1;
+    x.shadowBlur=8; x.shadowColor=`rgb(${c[0]},${c[1]},${c[2]})`;
+    x.beginPath(); x.moveTo(pts[i-1][0],pts[i-1][1]); x.lineTo(pts[i][0],pts[i][1]); x.stroke();
+  }
+  for(let i=0;i<pts.length;i++){
+    const c=ramp(pts[i][2]), sz=1.3+pts[i][2]*2.2;
+    x.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`; x.shadowBlur=10+pts[i][2]*14; x.shadowColor=`rgb(${c[0]},${c[1]},${c[2]})`;
+    x.beginPath(); x.arc(pts[i][0],pts[i][1],sz,0,6.2832); x.fill();
+  }
+  if(pts.length){const h=pts[pts.length-1];
+    x.fillStyle="#ffffff"; x.shadowBlur=34; x.shadowColor="#bfe6ff";
+    x.beginPath(); x.arc(h[0],h[1],4.2,0,6.2832); x.fill();
+    x.fillStyle="rgba(190,230,255,.5)"; x.beginPath(); x.arc(h[0],h[1],11,0,6.2832); x.fill();}
+  x.shadowBlur=0; x.globalCompositeOperation="source-over";
+  const vg=x.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3,W/2,H/2,Math.max(W,H)*0.7);
+  vg.addColorStop(0,"transparent"); vg.addColorStop(1,"rgba(2,1,8,0.8)"); x.fillStyle=vg; x.fillRect(0,0,W,H);
+  hud.textContent=`T = ${BEADS} squarings · bead ${shown}/${BEADS} · round ${round}\ny = g^(2^T) mod N · one unbroken sequential thread`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,306 @@
+<meta charset="utf-8">
+<title>PERCOLA — percolation resilience oracle</title>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0a0f16; --line:#101826;
+    --emerald:#1fff9f; --cyan:#22d3ee; --red:#ff2d4a;
+    --ink:#cfe9e0; --dim:#5f7a78; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 48px}
+  .head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .logo{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.32em;
+    color:var(--emerald);text-shadow:0 0 18px #1fff9f88}
+  h1{font-size:25px;font-weight:600;margin:6px 0 2px;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:14px;max-width:680px;line-height:1.6;margin:0 0 18px}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;background:#04060a;overflow:hidden}
+  canvas{display:block;width:100%}
+  #graph{height:480px}
+  .badge{position:absolute;top:12px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:#080d13cc;backdrop-filter:blur(3px);z-index:2}
+  #status{left:12px;color:var(--emerald);transition:color .25s,border-color .25s}
+  #status.crit{color:#ffd166;border-color:#ffd16655;text-shadow:0 0 14px #ffd16677}
+  #status.dead{color:var(--red);border-color:#ff2d4a66;text-shadow:0 0 16px #ff2d4a99}
+  #legend{right:12px;color:var(--dim);display:flex;gap:12px;align-items:center}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+  .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 2px 0}
+  button{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink);
+    background:#0c1420;border:1px solid var(--line);border-radius:9px;padding:9px 14px;cursor:pointer;transition:.15s}
+  button:hover{border-color:#1fff9f55;color:#fff}
+  button.primary{color:var(--emerald);border-color:#1fff9f55}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent}
+  .seg button.on{background:#10261f;color:var(--emerald)}
+  .slider{flex:1;min-width:200px;display:flex;align-items:center;gap:12px}
+  input[type=range]{flex:1;accent-color:var(--emerald)}
+  .read{font-family:var(--mono);font-size:13px;color:#fff;min-width:64px}
+  .read small{color:var(--dim)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .stat{border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:12px 14px}
+  .stat .k{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .stat .v{font-family:var(--mono);font-size:21px;margin-top:5px;color:#fff}
+  .stat .v.fc{color:var(--red)}
+  #curve{height:200px}
+  .foot{margin-top:22px;color:var(--dim);font-size:13px;line-height:1.7;max-width:760px}
+  .foot b{color:var(--ink);font-weight:600}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <span class="logo">PERCOLA</span>
+    <span class="tag">AIMarket oracle family · physics: percolation phase transition</span>
+  </div>
+  <h1>How many failures until the network shatters — and which ones decide it</h1>
+  <p class="sub">A living trust/dependency graph, held by one giant connected component. Watch the attack
+    fraction <b style="color:var(--emerald)">f</b> climb: high-leverage nodes detonate one by one and the network shrugs them
+    off — until the critical fraction <b style="color:var(--red)">f<sub>c</sub></b>, where it collapses in a single
+    catastrophic instant. Real percolation: greedy targeted ordering + union-find, no mocks.</p>
+
+  <div class="stage">
+    <div id="status" class="badge">network online</div>
+    <div id="legend" class="badge">
+      <span><span class="dot" style="background:#1fff9f"></span>giant component</span>
+      <span><span class="dot" style="background:#ff2d4a"></span>critical point</span>
+    </div>
+    <canvas id="graph"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="play" class="primary">▶ replay collapse</button>
+    <div class="seg" id="mode">
+      <button data-m="targeted" class="on">targeted</button>
+      <button data-m="random">random</button>
+    </div>
+    <div class="slider">
+      <input type="range" id="f" min="0" max="1000" value="0" />
+      <span class="read" id="fread">f <small>0.00</small></span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">attack fraction f</div><div class="v" id="sf">0.00</div></div>
+    <div class="stat"><div class="k">critical f_c</div><div class="v fc" id="sfc">—</div></div>
+    <div class="stat"><div class="k">giant component P∞</div><div class="v" id="sp">100%</div></div>
+    <div class="stat"><div class="k">live clusters</div><div class="v" id="sc">1</div></div>
+  </div>
+
+  <div class="stage" style="margin-top:14px">
+    <div class="badge" style="left:12px;color:var(--dim)">order parameter P∞(f) &nbsp;·&nbsp; <span style="color:var(--red)">susceptibility S₂(f)</span></div>
+    <canvas id="curve"></canvas>
+  </div>
+
+  <p class="foot">
+    <b>What an agent buys.</b> PERCOLA answers a question no per-node reputation score can: not <i>who</i> is trustworthy,
+    but <i>when the network as a whole loses connectivity</i>. ARGUS-3 calls it before routing a paid multi-step task through
+    a chain of sub-agents/MCP services — if <span class="tag">f<sub>c</sub></span> is low (a couple of keystone nodes fragment
+    everything), it refuses the route or demands escrow on the keystones. <b>Verifiable:</b> the graph is hashed to a
+    <span class="tag">graph_commitment</span>, the removal order is deterministic, and any verifier re-runs union-find over
+    that exact sequence to reproduce P∞(f) bit-for-bit. The threshold is proven, not asserted.
+  </p>
+</div>
+
+<script>
+(function(){
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+  let nodes,adj,edges,N,SW,tx,ty,cxp,cyp,vx,vy,prevCol,rng,seedN=20260622;
+
+  function components(active,adj){const seen=new Array(adj.length).fill(false),out=[];
+    for(let i=0;i<adj.length;i++){if(!active[i]||seen[i])continue;const st=[i];seen[i]=true;const c=[];
+      while(st.length){const u=st.pop();c.push(u);for(const v of adj[u])if(active[v]&&!seen[v]){seen[v]=true;st.push(v);}}out.push(c);}return out;}
+
+  function buildGraph(seed){
+    rng=mulberry32(seed);
+    const N0=70,R=0.155;
+    const pts0=[];for(let i=0;i<N0;i++)pts0.push({x:0.07+0.86*rng(),y:0.12+0.78*rng()});
+    const a0=pts0.map(()=>new Set());
+    for(let i=0;i<N0;i++)for(let j=i+1;j<N0;j++){const dx=pts0[i].x-pts0[j].x,dy=pts0[i].y-pts0[j].y;if(dx*dx+dy*dy<R*R){a0[i].add(j);a0[j].add(i);}}
+    let g=components(new Array(N0).fill(true),a0).sort((p,q)=>q.length-p.length);
+    const keep=new Set(g[0]),map=new Map(),P=[];[...keep].forEach(o=>{map.set(o,P.length);P.push(pts0[o]);});
+    N=P.length;nodes=P;adj=P.map(()=>new Set());
+    for(const o of keep)for(const v of a0[o])if(keep.has(v))adj[map.get(o)].add(map.get(v));
+    edges=[];for(let u=0;u<N;u++)for(const v of adj[u])if(u<v)edges.push([u,v]);
+    const tOrder=targeted(),rOrder=randPerm();
+    SW={targeted:sweep(tOrder),random:sweep(rOrder)};
+    prevCol=new Array(N).fill(0);
+    layout();
+  }
+  function targeted(){const removed=new Array(N).fill(false),deg=nodes.map((_,i)=>adj[i].size),order=[];
+    for(let k=0;k<N;k++){let b=-1,bd=-1;for(let u=0;u<N;u++)if(!removed[u]&&deg[u]>bd){bd=deg[u];b=u;}if(b<0)break;removed[b]=true;order.push(b);for(const v of adj[b])if(!removed[v])deg[v]--;}return order;}
+  function randPerm(){const a=[...Array(N).keys()];for(let i=N-1;i>0;i--){const j=Math.floor(rng()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+  function sweep(order){const P=[],S=[],NC=[];
+    for(let k=0;k<=N;k++){const act=new Array(N).fill(true);for(let i=0;i<k;i++)act[order[i]]=false;
+      const cs=components(act,adj).sort((p,q)=>q.length-p.length);
+      P.push((cs[0]?cs[0].length:0)/N);S.push((cs[1]?cs[1].length:0)/N);NC.push(cs.length);}
+    let fcK=1,mx=-1;for(let k=1;k<N;k++)if(S[k]>mx){mx=S[k];fcK=k;}
+    return {order,P,S,NC,fcK,fc:fcK/N};}
+  function stateAt(sw,k){const act=new Array(N).fill(true);for(let i=0;i<k;i++)act[sw.order[i]]=false;
+    const cs=components(act,adj).sort((p,q)=>q.length-p.length);const col=new Array(N).fill(-1);
+    cs.forEach((c,ci)=>c.forEach(n=>col[n]=ci));return{act,cs,col};}
+
+  const gC=document.getElementById('graph'),gx=gC.getContext('2d');
+  const cC=document.getElementById('curve'),cx=cC.getContext('2d');
+  let GW,GH,CW,CH,pad=42;
+  function fit(){const dpr=Math.min(2,window.devicePixelRatio||1);
+    let r=gC.getBoundingClientRect();GW=r.width;GH=r.height;gC.width=GW*dpr;gC.height=GH*dpr;gx.setTransform(dpr,0,0,dpr,0,0);
+    r=cC.getBoundingClientRect();CW=r.width;CH=r.height;cC.width=CW*dpr;cC.height=CH*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
+  function layout(){tx=new Array(N);ty=new Array(N);cxp=new Array(N);cyp=new Array(N);vx=new Array(N).fill(0);vy=new Array(N).fill(0);
+    for(let i=0;i<N;i++){tx[i]=pad+nodes[i].x*(GW-2*pad);ty[i]=pad+nodes[i].y*(GH-2*pad);cxp[i]=tx[i];cyp[i]=ty[i];}}
+
+  // starfield
+  let stars=[];
+  function makeStars(){stars=[];for(let i=0;i<110;i++)stars.push({x:Math.random()*GW,y:Math.random()*GH,z:.2+Math.random()*.8,p:Math.random()*6.28});}
+
+  // effects
+  let parts=[],rings=[],flash=0,shake=0;
+  function spawnParticles(x,y,col,n){for(let i=0;i<n;i++){const a=Math.random()*6.2832,s=.6+Math.random()*2.4;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col});}}
+
+  fit();buildGraph(seedN);makeStars();
+  window.addEventListener('resize',()=>{fit();layout();makeStars();});
+
+  function clusterColor(ci){if(ci===0)return'#1fff9f';if(ci<0)return null;const h=(ci*61+8)%360;return`hsl(${h} 88% 63%)`;}
+
+  // playback
+  let mode='targeted', kFrac=0, manual=false, t0=null, phase='alive', collapsed=false, lastK=0;
+  const DUR={alive:1700, attack:3600, push:900, after:3400};
+  function resetCinematic(){t0=null;phase='alive';collapsed=false;kFrac=0;lastK=0;flash=0;shake=0;parts=[];rings=[];layout();}
+
+  function setStatus(txt,cls){const s=document.getElementById('status');s.textContent=txt;s.className='badge '+(cls||'');}
+
+  function tick(ts){
+    const sw=SW[mode];const fc=sw.fc,fcK=sw.fcK;
+    if(!manual){
+      if(t0===null)t0=ts;
+      let e=ts-t0;
+      if(phase==='alive'){ if(e>DUR.alive){phase='attack';t0=ts;} kFrac=0; }
+      else if(phase==='attack'){ const p=Math.min(1,(ts-t0)/DUR.attack); kFrac=Math.pow(p,1.7)*fcK; if(p>=1){phase='push';t0=ts;} }
+      else if(phase==='push'){ const p=Math.min(1,(ts-t0)/DUR.push); kFrac=fcK+p*(0.55*N-fcK); if(p>=1){phase='after';t0=ts;} }
+      else if(phase==='after'){ if(ts-t0>DUR.after){seedN=(seedN*1664525+1013904223)>>>0;buildGraph(seedN);makeStars();resetCinematic();t0=ts;phase='alive';} }
+    }
+    const k=Math.max(0,Math.min(N,Math.round(kFrac)));
+    const S=stateAt(sw,k);
+
+    // detonation particles for newly-removed nodes (auto mode)
+    if(!manual && k>lastK){for(let kk=lastK;kk<k;kk++){const ni=sw.order[kk];spawnParticles(cxp[ni],cyp[ni],'#bafff0',7);}}
+    // crossing f_c → catastrophe
+    if(!manual && !collapsed && k>=fcK){collapsed=true;flash=1;shake=16;
+      let mx=0,my=0,c=0;for(let i=0;i<N;i++)if(S.act[i]){mx+=cxp[i];my+=cyp[i];c++;}mx/=c||1;my/=c||1;
+      rings.push({x:mx,y:my,r:8,life:1});rings.push({x:mx,y:my,r:8,life:1,d:1});
+      for(let i=0;i<N;i++)if(S.act[i]){const dx=cxp[i]-mx,dy=cyp[i]-my,d=Math.hypot(dx,dy)||1;vx[i]+=dx/d*5.5;vy[i]+=dy/d*5.5;}
+      for(let i=0;i<N;i++)if(!S.act[i])spawnParticles(cxp[i],cyp[i],'#ff7a8a',4);
+    }
+    lastK=k;
+
+    // physics: centroid for outward drift
+    let mx=0,my=0,c=0;for(let i=0;i<N;i++)if(S.act[i]){mx+=tx[i];my+=ty[i];c++;}mx/=c||1;my/=c||1;
+    for(let i=0;i<N;i++){
+      if(manual){cxp[i]=tx[i];cyp[i]=ty[i];vx[i]=vy[i]=0;continue;}
+      if(!S.act[i]){ vy[i]+=0.04; cxp[i]+=vx[i];cyp[i]+=vy[i]; vx[i]*=0.96;vy[i]*=0.96; continue; }
+      if(S.col[i]===0){ // survivors: spring home + breathe
+        const bx=Math.sin(ts*0.0014+i)*1.1, by=Math.cos(ts*0.0012+i*1.3)*1.1;
+        vx[i]+=((tx[i]+bx)-cxp[i])*0.06; vy[i]+=((ty[i]+by)-cyp[i])*0.06;
+      } else { // fragments: weak home + outward drift
+        const dx=cxp[i]-mx,dy=cyp[i]-my,d=Math.hypot(dx,dy)||1;
+        vx[i]+=dx/d*0.16+((tx[i])-cxp[i])*0.006; vy[i]+=dy/d*0.16+((ty[i])-cyp[i])*0.006;
+      }
+      vx[i]*=0.86;vy[i]*=0.86;cxp[i]+=vx[i];cyp[i]+=vy[i];
+    }
+
+    draw(sw,k,S,ts);
+    requestAnimationFrame(tick);
+  }
+
+  function draw(sw,k,S,ts){
+    const f=k/N, fc=sw.fc;
+    gx.setTransform(Math.min(2,window.devicePixelRatio||1),0,0,Math.min(2,window.devicePixelRatio||1),0,0);
+    gx.clearRect(0,0,GW,GH);
+    let sx=0,sy=0; if(shake>0){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake*=0.86;if(shake<.4)shake=0;}
+    gx.save();gx.translate(sx,sy);
+    // bg grid + stars
+    gx.strokeStyle='rgba(34,211,238,0.04)';gx.lineWidth=1;
+    for(let gxp=0;gxp<GW;gxp+=46){gx.beginPath();gx.moveTo(gxp,0);gx.lineTo(gxp,GH);gx.stroke();}
+    for(let gyp=0;gyp<GH;gyp+=46){gx.beginPath();gx.moveTo(0,gyp);gx.lineTo(GW,gyp);gx.stroke();}
+    gx.globalCompositeOperation='lighter';
+    for(const s of stars){const tw=.4+.6*Math.sin(ts*.002*s.z+s.p);s.x+=0.04*s.z;if(s.x>GW)s.x=0;
+      gx.globalAlpha=tw*s.z*.5;gx.fillStyle='#7fd8c9';gx.beginPath();gx.arc(s.x,s.y,s.z*1.1,0,6.28);gx.fill();}
+    gx.globalAlpha=1;
+    // edges
+    gx.lineWidth=1;
+    for(const[u,v]of edges){const au=S.act[u],av=S.act[v];
+      if(au&&av){const giant=S.col[u]===0&&S.col[v]===0;
+        gx.strokeStyle=giant?'rgba(31,255,159,0.26)':'rgba(34,211,238,0.10)';
+        gx.beginPath();gx.moveTo(cxp[u],cyp[u]);gx.lineTo(cxp[v],cyp[v]);gx.stroke();}}
+    // particles
+    for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vy+=0.02;p.life-=0.025;if(p.life<=0)continue;
+      gx.globalAlpha=Math.max(0,p.life);gx.fillStyle=p.col;gx.shadowBlur=8;gx.shadowColor=p.col;
+      gx.beginPath();gx.arc(p.x,p.y,1.6*p.life+0.4,0,6.28);gx.fill();}
+    parts=parts.filter(p=>p.life>0);gx.globalAlpha=1;gx.shadowBlur=0;
+    // rings (shockwave)
+    for(const r of rings){r.r+=(r.d?9:6);r.life-=0.018;if(r.life<=0)continue;
+      gx.globalAlpha=Math.max(0,r.life)*.8;gx.strokeStyle=r.d?'#ff2d4a':'#bafff0';gx.lineWidth=2;gx.shadowBlur=18;gx.shadowColor=r.d?'#ff2d4a':'#1fff9f';
+      gx.beginPath();gx.arc(r.x,r.y,r.r,0,6.28);gx.stroke();}
+    rings=rings.filter(r=>r.life>0);gx.globalAlpha=1;gx.shadowBlur=0;
+    // nodes
+    const pulse=1+0.18*Math.sin(ts*0.004);
+    for(let i=0;i<N;i++){if(!S.act[i]){gx.fillStyle='rgba(120,140,150,0.10)';gx.beginPath();gx.arc(cxp[i],cyp[i],2,0,6.28);gx.fill();continue;}
+      const ci=S.col[i],col=clusterColor(ci);
+      gx.shadowBlur=ci===0?(12*pulse):8;gx.shadowColor=col;gx.fillStyle=col;
+      gx.beginPath();gx.arc(cxp[i],cyp[i],ci===0?4.4:3.4,0,6.28);gx.fill();}
+    gx.shadowBlur=0;gx.globalCompositeOperation='source-over';
+    // vignette + flash
+    const vg=gx.createRadialGradient(GW/2,GH/2,GH*0.3,GW/2,GH/2,GH*0.9);
+    vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(2,4,8,0.75)');gx.fillStyle=vg;gx.fillRect(-20,-20,GW+40,GH+40);
+    if(flash>0){gx.fillStyle=`rgba(255,${Math.round(120+120*flash)},${Math.round(150*flash)},${flash*0.5})`;gx.fillRect(-20,-20,GW+40,GH+40);flash*=0.88;if(flash<.02)flash=0;}
+    gx.restore();
+
+    // status + stats
+    if(manual){ k>=sw.fcK?setStatus('shattered — past f_c','dead'):setStatus('network online',''); }
+    else if(phase==='alive')setStatus('network online','');
+    else if(phase==='attack')setStatus('under attack · f rising','');
+    else if(collapsed)setStatus('▲ resilience breached','dead');
+    else setStatus('approaching f_c','crit');
+    document.getElementById('sf').textContent=f.toFixed(2);
+    document.getElementById('sfc').textContent=fc.toFixed(2);
+    document.getElementById('sp').textContent=Math.round(sw.P[k]*100)+'%';
+    document.getElementById('sc').textContent=sw.NC[k];
+    document.getElementById('fread').innerHTML='f <small>'+f.toFixed(2)+'</small>';
+    if(!manual)document.getElementById('f').value=Math.round(f*1000);
+    drawCurve(sw,k,ts);
+  }
+
+  function drawCurve(sw,k,ts){
+    cx.clearRect(0,0,CW,CH);
+    const pl={l:34,r:14,t:18,b:24},W=CW-pl.l-pl.r,H=CH-pl.t-pl.b,fmax=0.85;
+    const X=f=>pl.l+(f/fmax)*W,Y=v=>pl.t+(1-v)*H;
+    cx.strokeStyle='rgba(40,55,70,0.25)';cx.lineWidth=1;cx.strokeRect(pl.l,pl.t,W,H);
+    cx.fillStyle='#5f7a78';cx.font='10px ui-monospace,monospace';
+    for(let g=0;g<=1;g+=0.5)cx.fillText(g.toFixed(1),6,Y(g)+3);
+    for(let g=0;g<=fmax+0.001;g+=0.2)cx.fillText(g.toFixed(1),X(g)-6,CH-8);
+    const fcr=Math.max(0,(k-sw.fcK))>=0&&k>=sw.fcK;
+    cx.setLineDash([4,4]);cx.strokeStyle=fcr?'rgba(255,45,74,0.95)':'rgba(255,45,74,0.5)';cx.beginPath();cx.moveTo(X(sw.fc),pl.t);cx.lineTo(X(sw.fc),pl.t+H);cx.stroke();cx.setLineDash([]);
+    cx.fillStyle='#ff2d4a';cx.fillText('f_c='+sw.fc.toFixed(2),X(sw.fc)+4,pl.t+10);
+    const lim=Math.round(fmax*N),s2max=Math.max(...sw.S)||1;
+    cx.strokeStyle='#ff2d4a';cx.lineWidth=1.6;cx.beginPath();
+    for(let i=0;i<=lim;i++){const xx=X(i/N),yy=Y(sw.S[i]/s2max);i?cx.lineTo(xx,yy):cx.moveTo(xx,yy);}cx.stroke();
+    cx.strokeStyle='#1fff9f';cx.lineWidth=2;cx.shadowBlur=8;cx.shadowColor='#1fff9f';cx.beginPath();
+    for(let i=0;i<=lim;i++){const xx=X(i/N),yy=Y(sw.P[i]);i?cx.lineTo(xx,yy):cx.moveTo(xx,yy);}cx.stroke();cx.shadowBlur=0;
+    // pulsing susceptibility-peak marker
+    const pr=2.5+1.8*Math.sin(ts*0.006);
+    cx.fillStyle='#ff2d4a';cx.shadowBlur=14;cx.shadowColor='#ff2d4a';
+    cx.beginPath();cx.arc(X(sw.fc),Y(sw.S[sw.fcK]/s2max),pr+1.5,0,6.28);cx.fill();cx.shadowBlur=0;
+    const cf=k/N;cx.strokeStyle='rgba(255,255,255,0.55)';cx.lineWidth=1;cx.beginPath();cx.moveTo(X(cf),pl.t);cx.lineTo(X(cf),pl.t+H);cx.stroke();
+  }
+
+  const slider=document.getElementById('f');
+  slider.addEventListener('input',()=>{manual=true;kFrac=(+slider.value/1000)*N;});
+  document.querySelectorAll('#mode button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#mode button').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.m;
+    if(!manual)resetCinematic();}));
+  document.getElementById('play').addEventListener('click',()=>{manual=false;resetCinematic();});
+
+  requestAnimationFrame(tick);
+})();
+</script>
