@@ -1,0 +1,524 @@
+<meta charset="utf-8">
+<title>FERMAT — least-time composition oracle</title>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0a0f16; --line:#101826;
+    --cyan:#22d3ee; --violet:#a78bfa; --emerald:#1fff9f; --red:#ff2d4a; --gold:#ffd166;
+    --ink:#d6e6f0; --dim:#5f7a78; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 48px}
+  .head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .logo{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.32em;
+    color:var(--cyan);text-shadow:0 0 18px #22d3ee88}
+  h1{font-size:25px;font-weight:600;margin:6px 0 2px;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:14px;max-width:700px;line-height:1.6;margin:0 0 18px}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;background:#04060a;overflow:hidden}
+  canvas{display:block;width:100%}
+  #optics{height:480px}
+  .badge{position:absolute;top:12px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:#080d13cc;backdrop-filter:blur(3px);z-index:2}
+  #status{left:12px;color:var(--cyan);transition:color .25s,border-color .25s}
+  #status.build{color:var(--violet);border-color:#a78bfa55;text-shadow:0 0 14px #a78bfa77}
+  #status.lock{color:var(--emerald);border-color:#1fff9f66;text-shadow:0 0 16px #1fff9f99}
+  #legend{right:12px;color:var(--dim);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+  .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 2px 0}
+  button{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink);
+    background:#0c1420;border:1px solid var(--line);border-radius:9px;padding:9px 14px;cursor:pointer;transition:.15s}
+  button:hover{border-color:#22d3ee55;color:#fff}
+  button.primary{color:var(--cyan);border-color:#22d3ee55}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent}
+  .seg button.on{background:#16213a;color:var(--violet)}
+  .seg .lab{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);padding:9px 10px 9px 0;align-self:center}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .stat{border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:12px 14px}
+  .stat .k{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .stat .v{font-family:var(--mono);font-size:21px;margin-top:5px;color:#fff}
+  .stat .v.ok{color:var(--emerald)}
+  .stat .v.bad{color:var(--red)}
+  #profile{height:188px}
+  .foot{margin-top:22px;color:var(--dim);font-size:13px;line-height:1.7;max-width:780px}
+  .foot b{color:var(--ink);font-weight:600}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--violet)}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <span class="logo">FERMAT</span>
+    <span class="tag" style="color:var(--cyan)">AIMarket oracle family · physics: Fermat's least-time principle</span>
+  </div>
+  <h1>Light already knows the cheapest route — so does the oracle that thinks like light</h1>
+  <p class="sub">A field of capability lenses, each with a <b style="color:var(--violet)">refractive index</b> n blended from
+    cost, latency and (1−reputation). A <b style="color:var(--cyan)">Huygens wavefront</b> swells out of the source — every
+    arc a level-set of the eikonal T(v), the least cost-to-reach. The instant it touches the goal it collapses into the one
+    <b style="color:var(--emerald)">least-time ray</b>, bending at each lens by Snell's law. Real optics: Dijkstra eikonal
+    solve + a passing dual-optimality certificate, no mocks.</p>
+
+  <div class="stage">
+    <div id="status" class="badge">optical table armed</div>
+    <div id="legend" class="badge">
+      <span><span class="dot" style="background:#22d3ee"></span>wavefront T(v)</span>
+      <span><span class="dot" style="background:#1fff9f"></span>least-time ray</span>
+      <span><span class="dot" style="background:#5f7a78"></span>ghost paths</span>
+    </div>
+    <canvas id="optics"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="play" class="primary">▶ re-fire wavefront</button>
+    <div class="seg" id="mode">
+      <span class="lab">refractive&nbsp;blend</span>
+      <button data-m="cost" class="on">cost</button>
+      <button data-m="latency">latency</button>
+      <button data-m="trust">trust</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">least time T(goal)</div><div class="v" id="sT">—</div></div>
+    <div class="stat"><div class="k">hops on path</div><div class="v" id="sH">—</div></div>
+    <div class="stat"><div class="k">dual certificate</div><div class="v" id="sD">—</div></div>
+    <div class="stat"><div class="k">index blend n̄</div><div class="v" id="sN">—</div></div>
+  </div>
+
+  <div class="stage" style="margin-top:14px">
+    <div class="badge" style="left:12px;color:var(--dim)">eikonal profile T(v) along the optimal ray &nbsp;·&nbsp;
+      <span style="color:var(--violet)">per-edge optical length n·ℓ</span></div>
+    <canvas id="profile"></canvas>
+  </div>
+
+  <p class="foot">
+    <b>What an agent buys.</b> FERMAT answers a question no greedy "pick the cheapest next tool" heuristic can: not which step
+    looks good now, but <i>which whole composition of sub-agents/MCP services is globally least-time</i> once cost, latency and
+    distrust are fused into a single refractive index. ARGUS-3 calls it before paying for a multi-step task — it gets back the
+    exact tool chain, its total optical length T(goal), and a <span class="tag">dual certificate</span> proving no cheaper route
+    exists. <b>Verifiable:</b> reduced costs n·ℓ − (T(u)−T(v)) ≥ 0 on every edge and = 0 along the ray — the optimality is
+    <i>proven by complementary slackness</i>, not asserted. Flip the blend and watch the ray re-bend onto a new proven route.
+  </p>
+</div>
+
+<script>
+(function(){
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+  // ---- graph model: layered capability DAG-ish lattice (source -> ... -> goal) ----
+  let rng, seedN=20260622;
+  let N, nodes, edges, adjOut, S=0, G=0; // node positions in [0,1], edges list
+  let cost,lat,rep;                       // per-node intrinsic attributes (0..1)
+  let mode='cost';
+
+  // refractive index of an EDGE (u->v): blend of v's cost/latency/(1-rep)
+  // weights chosen per blend mode; index n in ~[0.6 .. 2.4]
+  const BLEND={
+    cost:   {c:0.78, l:0.14, t:0.08},
+    latency:{c:0.14, l:0.78, t:0.08},
+    trust:  {c:0.12, l:0.12, t:0.76},
+  };
+  function indexOf(v,m){const b=BLEND[m];const ndist=b.c*cost[v]+b.l*lat[v]+b.t*(1-rep[v]);
+    return 0.55+1.9*ndist;} // refractive index n(v)
+
+  function buildGraph(seed){
+    rng=mulberry32(seed);
+    // layered field: columns L=0..COLS, rows jittered. source single, goal single.
+    const COLS=6, ROWS=4;
+    const pts=[]; const colOf=[];
+    pts.push({x:0.06,y:0.5}); colOf.push(0);            // source
+    S=0;
+    for(let c=1;c<COLS;c++){
+      const rcount = (c%2===0)?ROWS:ROWS-1;
+      for(let r=0;r<rcount;r++){
+        const y=(r+0.5)/rcount;
+        const x=0.06+ (c/COLS)*0.88 + (rng()-0.5)*0.045;
+        pts.push({x:Math.min(0.95,x), y:Math.min(0.93,Math.max(0.07, y+(rng()-0.5)*0.10))});
+        colOf.push(c);
+      }
+    }
+    pts.push({x:0.95,y:0.5}); colOf.push(COLS);          // goal
+    G=pts.length-1;
+    N=pts.length; nodes=pts;
+
+    // intrinsic attributes per node (source/goal are free)
+    cost=new Array(N); lat=new Array(N); rep=new Array(N);
+    for(let i=0;i<N;i++){
+      if(i===S||i===G){cost[i]=0;lat[i]=0;rep[i]=1;continue;}
+      cost[i]=rng(); lat[i]=rng(); rep[i]=0.18+0.82*rng();
+    }
+
+    // edges: forward to next 1-2 columns, choose nearest few by geometry
+    adjOut=Array.from({length:N},()=>[]);
+    edges=[];
+    for(let u=0;u<N;u++){
+      const cu=colOf[u];
+      if(cu>=COLS) continue;
+      // candidate targets in columns cu+1 (and a few cu+2 skip-links)
+      const cand=[];
+      for(let v=0;v<N;v++){
+        if(v===u) continue;
+        const cv=colOf[v];
+        if(cv===cu+1 || (cv===cu+2 && rng()<0.5)){
+          const dy=Math.abs(nodes[u].y-nodes[v].y), dx=nodes[v].x-nodes[u].x;
+          cand.push({v, d:Math.hypot(dx,dy)});
+        }
+      }
+      cand.sort((a,b)=>a.d-b.d);
+      const take=Math.min(cand.length, cu===0?4:(2+(rng()<0.5?1:0)));
+      for(let k=0;k<take;k++){
+        const v=cand[k].v;
+        const dx=nodes[v].x-nodes[u].x, dy=nodes[v].y-nodes[u].y;
+        const len=Math.hypot(dx,dy); // geometric edge length ℓ
+        adjOut[u].push({v,len});
+        edges.push({u,v,len});
+      }
+    }
+    // guarantee goal reachable: connect last-column nodes to goal
+    for(let u=0;u<N;u++){
+      if(colOf[u]===COLS-1){
+        const dx=nodes[G].x-nodes[u].x, dy=nodes[G].y-nodes[u].y, len=Math.hypot(dx,dy);
+        if(!adjOut[u].some(e=>e.v===G)){adjOut[u].push({v:G,len});edges.push({u,v:G,len});}
+      }
+    }
+    solve(mode);
+  }
+
+  // ---- REAL Dijkstra eikonal solve: T(v)=least optical length source->v ----
+  // optical length of edge u->v = n(v) * ℓ(u,v)   (Fermat: minimize ∫ n ds)
+  let T, prev, order, optEdges, optNodes, dual, nbar, tGoal;
+  function w(u,v,len,m){return indexOf(v,m)*len;}
+
+  function solve(m){
+    T=new Array(N).fill(Infinity); prev=new Array(N).fill(-1);
+    T[S]=0; order=[];
+    const done=new Array(N).fill(false);
+    // simple O(N^2) Dijkstra — N is tiny
+    for(let it=0;it<N;it++){
+      let u=-1,best=Infinity;
+      for(let i=0;i<N;i++) if(!done[i]&&T[i]<best){best=T[i];u=i;}
+      if(u<0) break;
+      done[u]=true; order.push(u);
+      for(const e of adjOut[u]){
+        const nd=T[u]+w(u,e.v,e.len,m);
+        if(nd<T[e.v]-1e-12){T[e.v]=nd;prev[e.v]=u;}
+      }
+    }
+    // reconstruct optimal path source->goal
+    optNodes=[]; let c=G;
+    if(prev[G]>=0||G===S){while(c!==-1){optNodes.push(c);c=prev[c];}optNodes.reverse();}
+    optEdges=[];
+    for(let i=0;i+1<optNodes.length;i++) optEdges.push({u:optNodes[i],v:optNodes[i+1]});
+    tGoal=T[G];
+
+    // ---- DUAL OPTIMALITY CERTIFICATE (complementary slackness on shortest-path LP) ----
+    // For every edge u->v with finite T(u): reduced cost  r = n·ℓ - (T(v)-T(u)) >= 0  (feasibility)
+    // Along the optimal ray every edge must be TIGHT: r == 0  (complementary slackness)
+    let feasible=true, tightOK=true, minR=Infinity, viol=0;
+    for(const e of edges){
+      if(!isFinite(T[e.u])) continue;
+      const r = w(e.u,e.v,e.len,m) - (T[e.v]-T[e.u]);
+      if(r < -1e-9){feasible=false; viol++;}
+      if(r<minR) minR=r;
+    }
+    const tightSet=new Set(optEdges.map(e=>e.u+'>'+e.v));
+    for(const e of edges){
+      if(tightSet.has(e.u+'>'+e.v)){
+        const r=w(e.u,e.v,e.len,m)-(T[e.v]-T[e.u]);
+        if(Math.abs(r)>1e-7) tightOK=false;
+      }
+    }
+    dual={feasible,tightOK,pass:(feasible&&tightOK&&isFinite(tGoal)),minR,viol};
+
+    // mean refractive index along the ray
+    let sn=0,k=0; for(const e of optEdges){sn+=indexOf(e.v,m);k++;} nbar=k?sn/k:0;
+  }
+
+  // ---- canvas plumbing ----
+  const oC=document.getElementById('optics'),ox=oC.getContext('2d');
+  const pC=document.getElementById('profile'),px=pC.getContext('2d');
+  let OW,OH,PW,PH,pad=46;
+  function dpr(){return Math.min(2,window.devicePixelRatio||1);}
+  function fit(){const d=dpr();
+    let r=oC.getBoundingClientRect();OW=r.width;OH=r.height;oC.width=OW*d;oC.height=OH*d;ox.setTransform(d,0,0,d,0,0);
+    r=pC.getBoundingClientRect();PW=r.width;PH=r.height;pC.width=PW*d;pC.height=PH*d;px.setTransform(d,0,0,d,0,0);}
+  let X=[],Y=[];
+  function layout(){X=new Array(N);Y=new Array(N);
+    for(let i=0;i<N;i++){X[i]=pad+nodes[i].x*(OW-2*pad);Y[i]=pad+nodes[i].y*(OH-2*pad);}}
+
+  // starfield
+  let stars=[];
+  function makeStars(){stars=[];for(let i=0;i<110;i++)stars.push({x:Math.random()*OW,y:Math.random()*OH,z:.2+Math.random()*.8,p:Math.random()*6.28});}
+
+  // effects
+  let parts=[],rings=[],flash=0,shake=0,bloom=0;
+  function spawnParticles(x,y,col,n,spd){for(let i=0;i<n;i++){const a=Math.random()*6.2832,s=(spd||1)*(.4+Math.random()*2.0);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col});}}
+
+  fit();buildGraph(seedN);layout();makeStars();
+  window.addEventListener('resize',()=>{fit();layout();makeStars();});
+
+  // index -> tint (cyan(low) .. violet(mid) .. red(high)) for lenses
+  function lensColor(n){
+    // n in ~[0.55..2.45] -> param 0..1
+    const t=Math.max(0,Math.min(1,(n-0.7)/1.5));
+    if(t<0.5){const u=t/0.5; return mix([34,211,238],[167,139,250],u);}     // cyan->violet
+    const u=(t-0.5)/0.5; return mix([167,139,250],[255,45,74],u);            // violet->red
+  }
+  function mix(a,b,u){return`rgb(${Math.round(a[0]+(b[0]-a[0])*u)},${Math.round(a[1]+(b[1]-a[1])*u)},${Math.round(a[2]+(b[2]-a[2])*u)})`;}
+
+  // ---- cinematic state machine ----
+  // phases: arm (calm breathing) -> sweep (wavefront expands by T) -> collapse (flash+ray draws) -> bask (ray glows) -> reset
+  let phase='arm', t0=null, manual=false, sweepFront=0, rayProg=0, collapsedAt=0;
+  const DUR={arm:1500, sweep:3400, collapse:1100, bask:3200};
+  function resetCinematic(){t0=null;phase='arm';sweepFront=0;rayProg=0;flash=0;shake=0;bloom=0;parts=[];rings=[];collapsedAt=0;}
+
+  function setStatus(txt,cls){const s=document.getElementById('status');s.textContent=txt;s.className='badge '+(cls||'');}
+
+  function tick(ts){
+    if(t0===null)t0=ts;
+    const e=ts-t0;
+    const Tmax=isFinite(tGoal)?tGoal:1;
+
+    if(!manual){
+      if(phase==='arm'){ sweepFront=0; rayProg=0; if(e>DUR.arm){phase='sweep';t0=ts;} }
+      else if(phase==='sweep'){ const p=Math.min(1,(ts-t0)/DUR.sweep); sweepFront=Math.pow(p,0.92)*Tmax*1.001;
+        if(p>=1){phase='collapse';t0=ts;flash=1;shake=12;bloom=1;collapsedAt=ts;
+          // detonate at goal
+          rings.push({x:X[G],y:Y[G],r:6,life:1,col:'#1fff9f'});
+          rings.push({x:X[G],y:Y[G],r:6,life:1,col:'#bafff0'});
+          spawnParticles(X[G],Y[G],'#bafff0',26,2.2);
+        } }
+      else if(phase==='collapse'){ const p=Math.min(1,(ts-t0)/DUR.collapse); rayProg=p;
+        if(p>=1){phase='bask';t0=ts;} }
+      else if(phase==='bask'){ rayProg=1; if(ts-t0>DUR.bask){
+        seedN=(seedN*1664525+1013904223)>>>0;buildGraph(seedN);layout();makeStars();resetCinematic();t0=ts;} }
+    } else { sweepFront=Tmax*1.001; rayProg=1; }
+
+    draw(ts);
+    drawProfile(ts);
+    updateStats();
+    requestAnimationFrame(tick);
+  }
+
+  // glow helper
+  function glowLine(c,x1,y1,x2,y2,col,wd,blur){c.strokeStyle=col;c.lineWidth=wd;c.shadowBlur=blur;c.shadowColor=col;
+    c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();c.shadowBlur=0;}
+
+  function draw(ts){
+    const d=dpr(); ox.setTransform(d,0,0,d,0,0); ox.clearRect(0,0,OW,OH);
+    let sx=0,sy=0; if(shake>0){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake*=0.85;if(shake<.3)shake=0;}
+    ox.save();ox.translate(sx,sy);
+
+    // bg grid + drifting stars
+    ox.strokeStyle='rgba(34,211,238,0.04)';ox.lineWidth=1;
+    for(let gx=0;gx<OW;gx+=46){ox.beginPath();ox.moveTo(gx,0);ox.lineTo(gx,OH);ox.stroke();}
+    for(let gy=0;gy<OH;gy+=46){ox.beginPath();ox.moveTo(0,gy);ox.lineTo(OW,gy);ox.stroke();}
+    ox.globalCompositeOperation='lighter';
+    for(const s of stars){const tw=.4+.6*Math.sin(ts*.002*s.z+s.p);s.x+=0.03*s.z;if(s.x>OW)s.x=0;
+      ox.globalAlpha=tw*s.z*.45;ox.fillStyle='#7fb8d8';ox.beginPath();ox.arc(s.x,s.y,s.z*1.05,0,6.28);ox.fill();}
+    ox.globalAlpha=1;ox.globalCompositeOperation='source-over';
+
+    const onRay = phase==='collapse'||phase==='bask'||manual;
+    const raySet=new Set(optEdges.map(e=>e.u+'>'+e.v));
+
+    // ---- edges (faint base; ghost during/after collapse) ----
+    ox.lineWidth=1;
+    for(const ed of edges){
+      const isRay=raySet.has(ed.u+'>'+ed.v);
+      if(isRay&&onRay) continue; // ray drawn separately on top
+      // ghost rejected paths once we've collapsed
+      const ghost = onRay;
+      ox.strokeStyle = ghost ? 'rgba(95,122,120,0.10)' : 'rgba(34,211,238,0.10)';
+      ox.beginPath();ox.moveTo(X[ed.u],Y[ed.u]);ox.lineTo(X[ed.v],Y[ed.v]);ox.stroke();
+    }
+
+    // ---- WAVEFRONT: Huygens arcs = level sets of T(v) ----
+    // during sweep, draw concentric "fronts" emanating from source; nodes whose T<=front light up.
+    if(phase==='sweep' || phase==='arm'){
+      ox.globalCompositeOperation='lighter';
+      const Tmax=isFinite(tGoal)?tGoal:1;
+      // a few level-set rings sweeping outward in T-space, rendered as geodesic distance circles from source
+      const nFr = 9;
+      for(let f=0; f<nFr; f++){
+        const frT = sweepFront - (f/nFr)* (Tmax*0.55);
+        if(frT<=0) continue;
+        // approximate the front geometrically: radius in pixels ~ frT scaled by avg index
+        const px0=X[S],py0=Y[S];
+        // scale: map T to pixels using the goal as calibration
+        const scale = (Math.hypot(X[G]-X[S],Y[G]-Y[S])) / (Tmax||1);
+        const rad = frT*scale;
+        const a = Math.max(0,(1 - f/nFr))*0.5*(phase==='sweep'?1:0.25);
+        ox.strokeStyle=`rgba(34,211,238,${a})`;ox.lineWidth= f===0?2:1.2;
+        ox.shadowBlur= f===0?16:0; ox.shadowColor='#22d3ee';
+        ox.beginPath();ox.arc(px0,py0,rad,-Math.PI*0.62,Math.PI*0.62);ox.stroke();ox.shadowBlur=0;
+      }
+      ox.globalCompositeOperation='source-over';
+    }
+
+    // ---- the LEAST-TIME RAY (bent at each lens) ----
+    if(onRay && optNodes.length>1){
+      ox.globalCompositeOperation='lighter';
+      // total drawn fraction of the polyline by rayProg
+      const segCount=optNodes.length-1;
+      const drawn=rayProg*segCount;
+      // outer bloom pass
+      for(let pass=0;pass<2;pass++){
+        const col = pass===0 ? 'rgba(31,255,159,0.30)' : '#1fff9f';
+        const wd  = pass===0 ? 9 : 2.4;
+        const bl  = pass===0 ? 22 : 10;
+        ox.strokeStyle=col;ox.lineWidth=wd;ox.shadowBlur=bl;ox.shadowColor='#1fff9f';
+        ox.beginPath();
+        let started=false;
+        for(let i=0;i<segCount;i++){
+          const seg = drawn - i; if(seg<=0) break;
+          const f=Math.min(1,seg);
+          const a=optNodes[i], b=optNodes[i+1];
+          const ax=X[a],ay=Y[a], bx=X[b],by=Y[b];
+          if(!started){ox.moveTo(ax,ay);started=true;}
+          ox.lineTo(ax+(bx-ax)*f, ay+(by-ay)*f);
+        }
+        ox.stroke();ox.shadowBlur=0;
+      }
+      // Snell "kink" sparkles at each interior lens on the path that's been reached
+      for(let i=1;i<optNodes.length-0 && i<=Math.ceil(drawn);i++){
+        if(i>=optNodes.length) break;
+        const ni=optNodes[i];
+        if(ni===G) continue;
+        const k=0.5+0.5*Math.sin(ts*0.006+i);
+        ox.fillStyle='rgba(186,255,240,'+(0.5+0.5*k)+')';ox.shadowBlur=12;ox.shadowColor='#1fff9f';
+        ox.beginPath();ox.arc(X[ni],Y[ni],2.2+1.3*k,0,6.28);ox.fill();ox.shadowBlur=0;
+      }
+      ox.globalCompositeOperation='source-over';
+    }
+
+    // ---- shockwave rings + particles ----
+    ox.globalCompositeOperation='lighter';
+    for(const r of rings){r.r+=7;r.life-=0.02;if(r.life<=0)continue;
+      ox.globalAlpha=Math.max(0,r.life)*.85;ox.strokeStyle=r.col;ox.lineWidth=2;ox.shadowBlur=18;ox.shadowColor=r.col;
+      ox.beginPath();ox.arc(r.x,r.y,r.r,0,6.28);ox.stroke();}
+    rings=rings.filter(r=>r.life>0);ox.globalAlpha=1;ox.shadowBlur=0;
+    for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vx*=0.97;p.vy*=0.97;p.life-=0.022;if(p.life<=0)continue;
+      ox.globalAlpha=Math.max(0,p.life);ox.fillStyle=p.col;ox.shadowBlur=8;ox.shadowColor=p.col;
+      ox.beginPath();ox.arc(p.x,p.y,1.7*p.life+0.4,0,6.28);ox.fill();}
+    parts=parts.filter(p=>p.life>0);ox.globalAlpha=1;ox.shadowBlur=0;
+    ox.globalCompositeOperation='source-over';
+
+    // ---- lenses (nodes) tinted by refractive index ----
+    const pulse=1+0.16*Math.sin(ts*0.004);
+    const litByFront = i=> (phase==='sweep') ? (T[i] <= sweepFront+1e-9) : true;
+    for(let i=0;i<N;i++){
+      const isSG = (i===S||i===G);
+      const n = isSG?1.0:indexOf(i,mode);
+      const col = isSG ? (i===S?'#22d3ee':'#1fff9f') : lensColor(n);
+      const onPath = optNodes.includes(i) && onRay;
+      const lit = litByFront(i) || onRay;
+      const baseR = isSG?6: (3.4 + (1-Math.min(1,(n-0.7)/1.5))*1.4); // brighter/clearer = lower index → slightly larger
+      ox.globalCompositeOperation='lighter';
+      if(lit){
+        ox.shadowBlur = onPath? 18*pulse : (isSG? 16 : 9);
+        ox.shadowColor=col; ox.globalAlpha = onRay && !onPath && !isSG ? 0.35 : 1;
+        ox.fillStyle=col;
+        ox.beginPath();ox.arc(X[i],Y[i],baseR*(onPath?pulse:1),0,6.28);ox.fill();
+        // lens "glass" ring
+        ox.globalAlpha = (onRay&&!onPath&&!isSG)?0.18:0.5; ox.shadowBlur=0;
+        ox.strokeStyle=col;ox.lineWidth=1; ox.beginPath();ox.arc(X[i],Y[i],baseR+2.5,0,6.28);ox.stroke();
+      } else {
+        ox.globalAlpha=0.5;ox.shadowBlur=0;ox.fillStyle='rgba(120,140,150,0.30)';
+        ox.beginPath();ox.arc(X[i],Y[i],2.6,0,6.28);ox.fill();
+      }
+      ox.globalAlpha=1;ox.shadowBlur=0;
+    }
+    ox.globalCompositeOperation='source-over';
+
+    // labels for source/goal
+    ox.font='10px ui-monospace,monospace';ox.textAlign='center';
+    ox.fillStyle='#22d3ee';ox.fillText('SOURCE',X[S],Y[S]-14);
+    ox.fillStyle=onRay?'#1fff9f':'#5f7a78';ox.fillText('GOAL',X[G],Y[G]-14);
+    ox.textAlign='left';
+
+    // vignette + flash bloom
+    const vg=ox.createRadialGradient(OW/2,OH/2,OH*0.3,OW/2,OH/2,OH*0.92);
+    vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(2,4,8,0.75)');ox.fillStyle=vg;ox.fillRect(-20,-20,OW+40,OH+40);
+    if(bloom>0){ // bloom centered on goal at the collapse instant
+      const bg=ox.createRadialGradient(X[G],Y[G],0,X[G],Y[G],OH*0.7);
+      bg.addColorStop(0,`rgba(186,255,240,${bloom*0.5})`);bg.addColorStop(0.4,`rgba(31,255,159,${bloom*0.18})`);bg.addColorStop(1,'transparent');
+      ox.globalCompositeOperation='lighter';ox.fillStyle=bg;ox.fillRect(-20,-20,OW+40,OH+40);ox.globalCompositeOperation='source-over';
+      bloom*=0.9;if(bloom<.02)bloom=0;
+    }
+    if(flash>0){ox.fillStyle=`rgba(${Math.round(180*flash)},255,${Math.round(220*flash)},${flash*0.42})`;ox.fillRect(-20,-20,OW+40,OH+40);flash*=0.86;if(flash<.02)flash=0;}
+    ox.restore();
+
+    // status text
+    if(manual) setStatus('ray locked · '+mode+' blend','lock');
+    else if(phase==='arm') setStatus('optical table armed','');
+    else if(phase==='sweep') setStatus('wavefront expanding · T(v) rising','build');
+    else if(phase==='collapse') setStatus('◆ least-time ray locked','lock');
+    else setStatus('certificate proven · ray glowing','lock');
+  }
+
+  function drawProfile(ts){
+    px.clearRect(0,0,PW,PH);
+    const pl={l:38,r:16,t:18,b:26},W=PW-pl.l-pl.r,H=PH-pl.t-pl.b;
+    px.strokeStyle='rgba(40,55,70,0.25)';px.lineWidth=1;px.strokeRect(pl.l,pl.t,W,H);
+    if(!isFinite(tGoal)||optNodes.length<2){return;}
+    const hops=optNodes.length-1;
+    const Xx=k=>pl.l+(k/hops)*W;
+    const Tm=tGoal||1;
+    const Yy=v=>pl.t+(1-v/Tm)*H;
+    // gridlines
+    px.fillStyle='#5f7a78';px.font='10px ui-monospace,monospace';
+    for(let g=0;g<=1.0001;g+=0.5){const yy=pl.t+(1-g)*H;px.fillText((g*Tm).toFixed(2),4,yy+3);}
+    px.fillText('hop',pl.l,PH-8);px.fillText(''+hops,pl.l+W-10,PH-8);
+
+    // per-edge optical length bars (n·ℓ) in violet
+    const cum=[0]; for(let i=0;i<optEdges.length;i++){const e=optEdges[i];cum.push(cum[i]+indexOf(e.v,mode)*edgeLen(e.u,e.v));}
+    const barW=Math.max(4,W/hops*0.34);
+    for(let i=0;i<optEdges.length;i++){
+      const e=optEdges[i];const seg=indexOf(e.v,mode)*edgeLen(e.u,e.v);
+      const x=Xx(i+0.5)-barW/2;
+      const h=(seg/Tm)*H;
+      px.fillStyle='rgba(167,139,250,0.32)';px.fillRect(x,pl.t+H-h,barW,h);
+      px.strokeStyle='rgba(167,139,250,0.6)';px.lineWidth=1;px.strokeRect(x,pl.t+H-h,barW,h);
+    }
+    // cumulative eikonal T(v) staircase along ray (emerald)
+    px.strokeStyle='#1fff9f';px.lineWidth=2;px.shadowBlur=8;px.shadowColor='#1fff9f';px.beginPath();
+    for(let i=0;i<=hops;i++){const xx=Xx(i),yy=Yy(cum[i]);i?px.lineTo(xx,yy):px.moveTo(xx,yy);}
+    px.stroke();px.shadowBlur=0;
+    // node dots
+    for(let i=0;i<=hops;i++){const xx=Xx(i),yy=Yy(cum[i]);
+      px.fillStyle=(i===0)?'#22d3ee':(i===hops?'#1fff9f':'#a78bfa');
+      px.shadowBlur=10;px.shadowColor=px.fillStyle;px.beginPath();px.arc(xx,yy,2.8,0,6.28);px.fill();px.shadowBlur=0;}
+    // moving marker tracks rayProg
+    const mk=Math.min(hops,(manual?hops:rayProg*hops));
+    const mi=Math.floor(mk),mf=mk-mi;
+    const cx0=Xx(mi),cy0=Yy(cum[mi]);
+    const cx1=Xx(Math.min(hops,mi+1)),cy1=Yy(cum[Math.min(hops,mi+1)]);
+    const mx=cx0+(cx1-cx0)*mf,my=cy0+(cy1-cy0)*mf;
+    const pr=2.6+1.6*Math.sin(ts*0.006);
+    px.fillStyle='#fff';px.shadowBlur=14;px.shadowColor='#1fff9f';px.beginPath();px.arc(mx,my,pr,0,6.28);px.fill();px.shadowBlur=0;
+  }
+  function edgeLen(u,v){const dx=nodes[v].x-nodes[u].x,dy=nodes[v].y-nodes[u].y;return Math.hypot(dx,dy);}
+
+  function updateStats(){
+    const reveal = phase==='collapse'||phase==='bask'||manual;
+    document.getElementById('sT').textContent = isFinite(tGoal)? (reveal?tGoal.toFixed(3):'…') : '∞';
+    document.getElementById('sH').textContent = reveal? (optNodes.length-1) : '…';
+    const dEl=document.getElementById('sD');
+    if(!reveal){dEl.textContent='…';dEl.className='v';}
+    else if(dual.pass){dEl.textContent='✓ proven';dEl.className='v ok';}
+    else {dEl.textContent='✗ '+dual.viol+' viol';dEl.className='v bad';}
+    document.getElementById('sN').textContent = reveal? nbar.toFixed(3) : '…';
+  }
+
+  // controls
+  document.querySelectorAll('#mode button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#mode button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    mode=b.dataset.m; solve(mode);
+    // re-bend dramatically: short flash + re-fire from collapse so the ray snaps to the new route
+    manual=false; resetCinematic(); phase='sweep'; t0=null; sweepFront=0;
+  }));
+  document.getElementById('play').addEventListener('click',()=>{manual=false;resetCinematic();});
+
+  requestAnimationFrame(tick);
+})();
+</script>

@@ -1,0 +1,55 @@
+[project]
+# Renamed from "sortes-oracle" on 2026-07-30, before first publish. Unprefixed short names on
+# PyPI belong to other people and can install colliding top-level modules — the incident
+# that made this a rule is recorded at the top of oracles/core/pyproject.toml. "sortes-oracle"
+# was unclaimed, which is not safe but claimable: anyone taking it makes
+# `pip install sortes-oracle` fetch their code into a namespace this repo imports.
+name = "aimarket-oracle-sortes"
+version = "0.1.0"
+description = "Sortes — true ECVRF (RFC 9381) verifiable-randomness oracle on oracle-core"
+# Both fields are required to publish, not cosmetic: `scripts/publish_pypi.sh` runs
+# `twine check --strict`, which fails a distribution whose `long_description` is empty, so
+# without `readme` the upload aborts after the build. Matches oracles/core.
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["aimarket-oracle-core>=0.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "httpx>=0.27.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sortes"]
+
+# An ALLOW-list, and deliberately not a deny-list — the same reasoning as oracles/core, which
+# is the only place in this family that had one. With no sdist target declared, hatchling falls
+# back to "everything not matched by a discovered .gitignore", and it walks UP for that file.
+# Inside this monorepo it finds oracles/.gitignore, whose `**/data/` rule is the only thing
+# keeping `data/sortes_signing_key` — this oracle's Ed25519 PRIVATE key — out of the tarball.
+# Copy the package anywhere that ancestor is not reachable (a CI checkout of one subdirectory,
+# a Docker build context, an rsync'd release dir) and the rule vanishes with it. That is not
+# hypothetical: an out-of-tree sdist build of oracles/oracles/chronos packaged
+# data/chronos_signing_key in plaintext. A PyPI version can be yanked but never withdrawn, so
+# a key published once is published permanently, and whoever holds it can forge this oracle's
+# proofs — which is the entire trust story of Sortes.
+#
+# An include list cannot be defeated by a missing file.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/sortes",
+    "/tests",
+    "/README.md",
+    "/pyproject.toml",
+]
+# hatchling adds .gitignore to an sdist on its own, regardless of `include`. It is not secret,
+# but it is a map of where the secrets in a private monorepo live. Also caught by the gate in
+# scripts/publish_pypi.sh, which is the point of a gate that does not trust the config.
+exclude = ["/.gitignore"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

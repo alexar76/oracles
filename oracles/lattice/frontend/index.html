@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lattice · low-discrepancy sequences</title>
+<style>
+  :root{
+    --bg:#04030f; --cyan:#6ee7ff; --purple:#c084fc; --pink:#f472b6;
+    --ink:#e9e6ff; --muted:#8b86b8;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;overflow:hidden;}
+  #c{position:fixed;inset:0;display:block;width:100vw;height:100vh;}
+  .hud{position:fixed;pointer-events:none;z-index:2;}
+  #title{top:26px;left:30px;}
+  #title h1{margin:0;font-size:21px;font-weight:600;letter-spacing:.34em;
+    font-family:"Georgia","Times New Roman",serif;font-style:normal;
+    background:linear-gradient(92deg,var(--cyan),var(--purple) 55%,var(--pink));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 0 26px rgba(192,132,252,.25);}
+  #title .cap{margin:9px 0 0;font-size:11.5px;color:var(--muted);letter-spacing:.05em;max-width:46ch;line-height:1.55;}
+  #legend{bottom:22px;left:30px;font-size:10.5px;color:var(--muted);letter-spacing:.04em;
+    display:flex;gap:20px;flex-wrap:wrap;align-items:center;line-height:1.6;}
+  #legend .sw{display:inline-flex;gap:7px;align-items:center;}
+  #legend .dot{width:8px;height:8px;border-radius:50%;box-shadow:0 0 9px currentColor;}
+  #legend .k{color:var(--ink);}
+  #phase{bottom:22px;right:30px;font-size:10.5px;color:var(--muted);letter-spacing:.22em;text-align:right;}
+  #phase .now{color:var(--cyan);text-shadow:0 0 12px var(--cyan);}
+  sub,sup{font-size:.7em;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud" id="title">
+  <h1>LATTICE</h1>
+  <p class="cap">Halton / van der Corput points snap from white-noise chaos into a flawless quasi-uniform 3D lattice — bases 2, 3, 5 · discrepancy O((log N)<sup>d</sup>/N).</p>
+</div>
+<div class="hud" id="legend">
+  <span class="sw"><span class="dot" style="color:var(--cyan)"></span><span class="k">near</span></span>
+  <span class="sw"><span class="dot" style="color:var(--purple)"></span><span class="k">mid</span></span>
+  <span class="sw"><span class="dot" style="color:var(--pink)"></span><span class="k">far</span> &nbsp;depth ramp</span>
+  <span class="sw"><span id="counter" class="k">0</span>&nbsp;points · φ<sub>b</sub>(n) radical inverse</span>
+</div>
+<div class="hud" id="phase"><span class="now" id="phaseName">CHAOS</span><br><span id="phaseSub">white noise clumps</span></div>
+<script>
+"use strict";
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha:false });
+const counterEl = document.getElementById('counter');
+const phaseNameEl = document.getElementById('phaseName');
+const phaseSubEl  = document.getElementById('phaseSub');
+
+let W=0, H=0, DPR=1;
+
+/* =====================================================================
+   REAL ORACLE MATH — van der Corput radical inverse φ_b(n), Halton in 3D.
+   Coordinate k uses the k-th coprime prime base, exactly as the backend
+   (lattice/halton.py): point(n) = (φ2(n), φ3(n), φ5(n)) ∈ [0,1)^3.
+   ===================================================================== */
+const PRIMES = [2,3,5,7,11,13,17,19];
+function radicalInverse(n, base){
+  let r=0, f=1/base, i=n;
+  while(i>0){ r += (i % base) * f; i = Math.floor(i/base); f /= base; }
+  return r;
+}
+function halton3(n){
+  return [ radicalInverse(n,2), radicalInverse(n,3), radicalInverse(n,5) ];
+}
+/* mulberry32 — reproducible white-noise cloud the lattice emerges from */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ---- palette: cyan -> purple -> pink (used everywhere with bleed) ---- */
+const STOPS = [[110,231,255],[192,132,252],[244,114,182]];
+function ramp(t){
+  t = t<0?0:t>1?1:t;
+  const seg = t<0.5?0:1, k = t<0.5?t/0.5:(t-0.5)/0.5;
+  const a=STOPS[seg], b=STOPS[seg+1];
+  return [ a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k ];
+}
+function rampStr(t,al){ const c=ramp(t); return `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${al==null?1:al})`; }
+
+/* =====================================================================
+   THE LATTICE — N points, each with a chaos position and its true
+   Halton position. We tween chaos -> order with per-point eased easing.
+   ===================================================================== */
+const N = 620;                 // capped for smooth 60fps
+const pts = [];
+(function build(){
+  const rnd = mulberry32(20260613);
+  for(let i=0;i<N;i++){
+    const h = halton3(i+1);                 // Halton index starts at 1 (matches backend)
+    // chaos: clumpy white noise — gaussian-ish blobs around a few random centers
+    const blob = (rnd()*1000)|0;
+    const cx = 0.5 + (((blob*2654435761)>>>0)/4294967296 - 0.5)*0.55;
+    const cy = 0.5 + (((blob*40503)>>>0)/4294967296 - 0.5)*0.55;
+    const cz = 0.5 + (((blob*2246822519)>>>0)/4294967296 - 0.5)*0.55;
+    const g = ()=> (rnd()+rnd()+rnd()-1.5)*0.30;  // approx gaussian
+    pts.push({
+      hx:h[0], hy:h[1], hz:h[2],                    // ordered (true Halton)
+      cx:cx+g(), cy:cy+g(), cz:cz+g(),              // chaos (clumped)
+      ph:rnd()*6.283,                                // per-point pulse phase
+      ord:0                                          // 0=chaos .. 1=lattice
+    });
+  }
+})();
+
+/* =====================================================================
+   STARFIELD — parallax, 3 depths, twinkle.
+   ===================================================================== */
+let stars = [];
+function seedStars(){
+  stars = [];
+  const layers = [
+    {n:90, sp:0.006, r:0.5, a:0.30},
+    {n:60, sp:0.014, r:0.9, a:0.50},
+    {n:34, sp:0.028, r:1.5, a:0.85},
+  ];
+  for(const L of layers)
+    for(let i=0;i<L.n;i++)
+      stars.push({x:Math.random(),y:Math.random(),r:L.r*(0.6+Math.random()*0.8),
+        sp:L.sp,a:L.a,tw:Math.random()*6.283,tone:Math.random()});
+}
+seedStars();
+
+/* =====================================================================
+   NEBULA — offscreen, low-res, scaled up = cheap soft blur. Breathing.
+   ===================================================================== */
+const neb = document.createElement('canvas');
+const nctx = neb.getContext('2d');
+const NEB_W = 200, NEB_H = 200;
+neb.width = NEB_W; neb.height = NEB_H;
+const blobs = [
+  {x:0.28,y:0.34,r:0.55,t:0.00,dx:0.5,dy:0.7},
+  {x:0.72,y:0.30,r:0.50,t:0.62,dx:-0.6,dy:0.5},
+  {x:0.50,y:0.72,r:0.62,t:1.00,dx:0.4,dy:-0.6},
+  {x:0.20,y:0.74,r:0.42,t:0.30,dx:0.7,dy:0.3},
+  {x:0.82,y:0.66,r:0.40,t:0.85,dx:-0.4,dy:-0.5},
+];
+function drawNebula(time){
+  nctx.globalCompositeOperation='source-over';
+  nctx.fillStyle='#04030f';
+  nctx.fillRect(0,0,NEB_W,NEB_H);
+  nctx.globalCompositeOperation='lighter';
+  for(const b of blobs){
+    const breathe = 0.5 + 0.5*Math.sin(time*0.00013 + b.t*6.283);
+    const bx = (b.x + Math.sin(time*0.00007*b.dx + b.t*5)*0.05)*NEB_W;
+    const by = (b.y + Math.cos(time*0.00006*b.dy + b.t*4)*0.05)*NEB_H;
+    const br = b.r*NEB_W*(0.78+0.22*breathe);
+    const col = ramp(b.t);
+    const g = nctx.createRadialGradient(bx,by,0,bx,by,br);
+    const a = 0.16 + 0.10*breathe;
+    g.addColorStop(0, `rgba(${col[0]|0},${col[1]|0},${col[2]|0},${a})`);
+    g.addColorStop(0.5, `rgba(${col[0]|0},${col[1]|0},${col[2]|0},${a*0.35})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    nctx.fillStyle=g;
+    nctx.fillRect(0,0,NEB_W,NEB_H);
+  }
+}
+
+/* =====================================================================
+   RESIZE — device-pixel-ratio crispness.
+   ===================================================================== */
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* =====================================================================
+   3D PROJECTION — center cube at origin, rotateY + slight rotateX, then
+   perspective. Returns screen x,y, a depth t in [0,1] for color, scale.
+   ===================================================================== */
+function project(x,y,z, rotY, rotX, scale, camZ){
+  // center the unit cube
+  let X = x-0.5, Y = y-0.5, Z = z-0.5;
+  // rotateY
+  const cy=Math.cos(rotY), sy=Math.sin(rotY);
+  let X1 =  X*cy + Z*sy;
+  let Z1 = -X*sy + Z*cy;
+  // rotateX
+  const cx=Math.cos(rotX), sx=Math.sin(rotX);
+  let Y1 =  Y*cx - Z1*sx;
+  let Z2 =  Y*sx + Z1*cx;
+  // perspective
+  const persp = camZ / (camZ - Z2);
+  return {
+    sx: W*0.5 + X1*scale*persp,
+    sy: H*0.5 + Y1*scale*persp,
+    depth: Z2,                       // -0.87..0.87 ish
+    persp
+  };
+}
+
+/* =====================================================================
+   ANIMATION ARC: build-up -> reveal -> hold -> dissolve -> loop.
+   Drives `order` (chaos 0 -> lattice 1) and `reveal` (how many points lit).
+   ===================================================================== */
+const PHASES = [
+  {name:'CHAOS',    sub:'white noise clumps',          dur:3200},
+  {name:'COLLAPSE', sub:'φ_b(n) snaps into order',      dur:4200},
+  {name:'LATTICE',  sub:'quasi-uniform · low discrepancy',dur:4200},
+  {name:'DISSOLVE', sub:'back to entropy',              dur:3000},
+];
+const CYCLE = PHASES.reduce((s,p)=>s+p.dur,0);
+function easeInOut(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+function easeOutBack(t){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
+
+function arc(elapsed){
+  let tcyc = elapsed % CYCLE;
+  let acc=0, idx=0, local=0;
+  for(let i=0;i<PHASES.length;i++){
+    if(tcyc < acc+PHASES[i].dur){ idx=i; local=(tcyc-acc)/PHASES[i].dur; break; }
+    acc+=PHASES[i].dur;
+  }
+  const name=PHASES[idx].name;
+  let order=0, reveal=1, settle=0;
+  if(name==='CHAOS'){      order=0;                 reveal=Math.min(1, local*1.4); }
+  else if(name==='COLLAPSE'){ order=easeInOut(local); reveal=1; settle=0; }
+  else if(name==='LATTICE'){  order=1; reveal=1; settle=1; }
+  else /* DISSOLVE */ {      order=1-easeInOut(local); reveal=1; }
+  return {idx,name,sub:PHASES[idx].sub,order,reveal,local};
+}
+
+/* twinkling star helper */
+function drawStars(time){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(const s of stars){
+    const tw = 0.4 + 0.6*(0.5+0.5*Math.sin(time*0.002 + s.tw));
+    const al = s.a*tw;
+    const x = ((s.x + time*0.00001*s.sp*60) % 1)*W;
+    const y = s.y*H;
+    const c = ramp(0.15 + s.tone*0.7);
+    ctx.fillStyle = `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${al})`;
+    ctx.shadowBlur = s.r*4*tw;
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.beginPath();
+    ctx.arc(x,y,s.r*tw,0,6.2832);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* trail buffer for motion-trail bloom on the lattice */
+let trail=null;
+function ensureTrail(){
+  if(!trail){ trail=document.createElement('canvas'); }
+  if(trail.width!==cv.width || trail.height!==cv.height){
+    trail.width=cv.width; trail.height=cv.height;
+    trail.getContext('2d').setTransform(DPR,0,0,DPR,0,0);
+  }
+}
+
+const startT = performance.now();
+let last = startT;
+
+function frame(now){
+  const dt = Math.min(40, now-last); last=now;
+  const elapsed = now - startT;
+  const A = arc(elapsed);
+
+  /* ---- backdrop: near-black + breathing nebula (soft via upscale) ---- */
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#04030f';
+  ctx.fillRect(0,0,W,H);
+  drawNebula(elapsed);
+  ctx.save();
+  ctx.globalAlpha=0.9;
+  ctx.imageSmoothingEnabled=true;
+  ctx.globalCompositeOperation='lighter';
+  ctx.drawImage(neb, 0,0,NEB_W,NEB_H, -20,-20, W+40, H+40);
+  ctx.restore();
+
+  /* ---- starfield ---- */
+  drawStars(elapsed);
+
+  /* ---- the lattice ---- */
+  const rotY = elapsed*0.00018;
+  const rotX = 0.42 + Math.sin(elapsed*0.00009)*0.16;
+  const scale = Math.min(W,H)*0.62;
+  const camZ = 2.4;
+
+  // motion-trail layer: fade previous, draw current additively, composite.
+  ensureTrail();
+  const tctx = trail.getContext('2d');
+  tctx.globalCompositeOperation='source-over';
+  // fade the trail toward transparent — longer trails when settled (LATTICE)
+  const fade = A.name==='LATTICE' ? 0.16 : 0.34;
+  tctx.fillStyle = `rgba(4,3,15,${fade})`;
+  tctx.fillRect(0,0,W,H);
+  tctx.globalCompositeOperation='lighter';
+
+  // depth sort for nicer overlap glow (cheap: project then sort by depth)
+  const proj = new Array(N);
+  for(let i=0;i<N;i++){
+    const p=pts[i];
+    const o = A.order;
+    const oe = easeOutBack(Math.min(1,Math.max(0,o)));   // springy snap into place
+    // interpolate chaos -> ordered Halton
+    const x = p.cx + (p.hx - p.cx)*oe;
+    const y = p.cy + (p.hy - p.cy)*oe;
+    const z = p.cz + (p.hz - p.cz)*oe;
+    proj[i] = project(x,y,z, rotY, rotX, scale, camZ);
+    proj[i].p = p; proj[i].o = o;
+  }
+  proj.sort((a,b)=> a.depth - b.depth);   // far first
+
+  const pulse = elapsed*0.004;
+  for(let i=0;i<N;i++){
+    const q=proj[i], p=q.p;
+    // color by depth (near=cyan, far=pink). normalize depth ~[-0.9..0.9]
+    const dt01 = (q.depth + 0.9)/1.8;
+    const tcol = 1-dt01;            // far -> 1 (pink), near -> 0 (cyan)
+    const persp = q.persp;
+    const pul = 0.5+0.5*Math.sin(pulse + p.ph);
+    // brighter & bigger when ordered + when pulsing + when near
+    const orderBoost = 0.45 + 0.55*q.o;
+    const baseR = (1.05 + 1.55*persp*0.7) * orderBoost;
+    const r = baseR*(0.85+0.3*pul);
+    const al = (0.30 + 0.55*persp) * orderBoost * (0.7+0.3*pul);
+    const c = ramp(tcol);
+    tctx.beginPath();
+    tctx.fillStyle = `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${al})`;
+    tctx.shadowBlur = (6 + 14*q.o)*persp;
+    tctx.shadowColor = `rgba(${c[0]|0},${c[1]|0},${c[2]|0},0.9)`;
+    tctx.arc(q.sx, q.sy, r, 0, 6.2832);
+    tctx.fill();
+  }
+
+  // when in LATTICE phase, sketch faint connective grid edges to read the order
+  if(A.order>0.78){
+    const ge = (A.order-0.78)/0.22;
+    tctx.shadowBlur=0;
+    tctx.lineWidth=0.6;
+    tctx.strokeStyle=`rgba(192,132,252,${0.10*ge})`;
+    // draw a sparse set of struts between consecutive Halton indices
+    tctx.beginPath();
+    for(let i=1;i<N;i+=7){
+      const A0=pts[i-1], A1=pts[i];
+      const j0=project(A0.hx,A0.hy,A0.hz,rotY,rotX,scale,camZ);
+      const j1=project(A1.hx,A1.hy,A1.hz,rotY,rotX,scale,camZ);
+      tctx.moveTo(j0.sx,j0.sy); tctx.lineTo(j1.sx,j1.sy);
+    }
+    tctx.stroke();
+  }
+
+  // composite trail onto main canvas (additive bloom)
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(trail,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.restore();
+
+  /* ---- vignette ---- */
+  const vg = ctx.createRadialGradient(W*0.5,H*0.5, Math.min(W,H)*0.30, W*0.5,H*0.5, Math.max(W,H)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,0.62)');
+  ctx.fillStyle=vg;
+  ctx.fillRect(0,0,W,H);
+
+  /* ---- faint film grain ---- */
+  if((now|0)%2===0){
+    ctx.save();
+    ctx.globalAlpha=0.025;
+    ctx.globalCompositeOperation='lighter';
+    for(let i=0;i<46;i++){
+      const gx=Math.random()*W, gy=Math.random()*H;
+      ctx.fillStyle = Math.random()<0.5?'#fff':'#c084fc';
+      ctx.fillRect(gx,gy,1,1);
+    }
+    ctx.restore();
+  }
+
+  /* ---- HUD updates ---- */
+  counterEl.textContent = Math.round(A.reveal*N);
+  if(phaseNameEl.textContent!==A.name){
+    phaseNameEl.textContent=A.name;
+    phaseSubEl.textContent=A.sub;
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
