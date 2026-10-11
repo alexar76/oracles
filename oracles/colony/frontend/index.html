@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Colony — combinatorial optimization with a quality certificate</title>
+<style>
+  :root {
+    --bg: #04030f;
+    --cyan: #6ee7ff;
+    --purple: #c084fc;
+    --pink: #f472b6;
+    --gold: #ffd27a;
+    --ink: #cbd5f5;
+    --muted: #6b7390;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--ink);
+    overflow: hidden;
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  header {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 26px 30px 0; z-index: 3; pointer-events: none;
+  }
+  h1 {
+    margin: 0; font-size: 21px; font-weight: 600;
+    letter-spacing: 0.34em; text-transform: uppercase;
+    background: linear-gradient(90deg, var(--cyan), var(--purple), var(--pink));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 18px rgba(110,231,255,0.35));
+  }
+  .caption {
+    margin: 9px 0 0; font-size: 12px; color: var(--muted);
+    letter-spacing: 0.05em; max-width: 540px; line-height: 1.5;
+  }
+  .hud {
+    position: absolute; left: 30px; bottom: 26px; z-index: 3;
+    font-size: 12px; line-height: 1.95; pointer-events: none;
+    text-shadow: 0 0 12px rgba(0,0,0,0.85);
+  }
+  .hud .row { display: flex; gap: 10px; align-items: baseline; }
+  .hud .k { color: var(--muted); width: 104px; display: inline-block; }
+  .hud .v { color: var(--cyan); font-variant-numeric: tabular-nums; }
+  .hud .v.gap { color: var(--pink); }
+  .hud .v.bound { color: var(--purple); }
+  .hud .v.moves { color: var(--gold); }
+  .bar {
+    position: relative; width: 230px; height: 6px; margin-top: 9px;
+    border-radius: 999px; background: rgba(192,132,252,0.13); overflow: hidden;
+  }
+  .bar > i {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, var(--purple), var(--cyan));
+    border-radius: 999px; box-shadow: 0 0 14px var(--cyan);
+    transition: width 0.25s ease;
+  }
+  .legend {
+    position: absolute; right: 30px; bottom: 26px; z-index: 3;
+    font-size: 11px; color: var(--muted); text-align: right;
+    line-height: 1.85; pointer-events: none;
+  }
+  .legend b { color: var(--ink); font-weight: 600; }
+  .legend .sw { display: inline-block; width: 22px; height: 0; vertical-align: middle;
+    border-top: 2px solid; margin-left: 7px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Colony</h1>
+  <p class="caption">A glowing tour snaps taut and untangles itself — nearest-neighbour seeds it, 2-opt uncrosses edges live, and golden pheromone marks the surviving good edges. Every loop ships a quality certificate.</p>
+</header>
+<canvas id="c"></canvas>
+<div class="hud">
+  <div class="row"><span class="k">phase</span><span class="v" id="phase">building</span></div>
+  <div class="row"><span class="k">tour length</span><span class="v" id="len">—</span></div>
+  <div class="row"><span class="k">lower bound</span><span class="v bound" id="lb">—</span></div>
+  <div class="row"><span class="k">gap</span><span class="v gap" id="gap">—</span></div>
+  <div class="row"><span class="k">2-opt moves</span><span class="v moves" id="moves">0</span></div>
+  <div class="bar"><i id="gapbar"></i></div>
+</div>
+<div class="legend">
+  <div><b>·</b> cities <span class="sw" style="border-color:#9fb4ff"></span> current tour</div>
+  <div>pheromone <span class="sw" style="border-color:#ffd27a"></span> blooms on edges that survive</div>
+  <div>2-opt reverses a segment iff it shortens the loop</div>
+  <div>optimum lies in [ bound , length ]</div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const cv = document.getElementById("c");
+  const ctx = cv.getContext("2d");
+  const $ = (id) => document.getElementById(id);
+
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    buildNebula();
+  }
+  window.addEventListener("resize", () => { resize(); regenerate(); });
+
+  // ---------------------------------------------------------------------------
+  // Offscreen NEBULA: a few large soft radial blobs, drawn small and scaled up
+  // so it stays cheap and reads as soft volumetric light. Re-rasterized only on
+  // resize; animation is achieved by slowly drifting/breathing it on draw.
+  // ---------------------------------------------------------------------------
+  const neb = document.createElement("canvas");
+  const nctx = neb.getContext("2d");
+  let nebBlobs = [];
+  function buildNebula() {
+    const sw = Math.max(80, Math.floor(W / 7));
+    const sh = Math.max(60, Math.floor(H / 7));
+    neb.width = sw; neb.height = sh;
+    nebBlobs = [];
+    const pal = ["110,231,255", "192,132,252", "244,114,182", "120,150,255", "255,210,122"];
+    const n = 5;
+    for (let i = 0; i < n; i++) {
+      nebBlobs.push({
+        x: Math.random(), y: Math.random(),
+        r: 0.34 + Math.random() * 0.34,
+        col: pal[i % pal.length],
+        a: 0.13 + Math.random() * 0.12,
+        px: Math.random() * Math.PI * 2, py: Math.random() * Math.PI * 2,
+        ps: 0.07 + Math.random() * 0.12,
+        amp: 0.05 + Math.random() * 0.06
+      });
+    }
+  }
+
+  function drawNebula(t) {
+    const sw = neb.width, sh = neb.height;
+    nctx.clearRect(0, 0, sw, sh);
+    nctx.fillStyle = "#04030f";
+    nctx.fillRect(0, 0, sw, sh);
+    nctx.globalCompositeOperation = "lighter";
+    for (const b of nebBlobs) {
+      const breathe = 1 + b.amp * Math.sin(t * 0.00018 * 60 * b.ps + b.px);
+      const cx = (b.x + b.amp * 0.6 * Math.sin(t * 0.00012 * 60 * b.ps + b.py)) * sw;
+      const cy = (b.y + b.amp * 0.6 * Math.cos(t * 0.0001 * 60 * b.ps + b.px)) * sh;
+      const rr = b.r * Math.min(sw, sh) * breathe;
+      const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      g.addColorStop(0, `rgba(${b.col},${b.a})`);
+      g.addColorStop(0.5, `rgba(${b.col},${b.a * 0.4})`);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      nctx.fillStyle = g;
+      nctx.beginPath();
+      nctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      nctx.fill();
+    }
+    nctx.globalCompositeOperation = "source-over";
+    // upscale the tiny canvas to full viewport — the scaling IS the blur
+    ctx.globalAlpha = 0.92;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(neb, 0, 0, sw, sh, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parallax starfield — 3 depth layers, slow drift + twinkle.
+  // ---------------------------------------------------------------------------
+  let layers = [];
+  function makeStars() {
+    layers = [];
+    const depths = [
+      { count: Math.floor((W * H) / 14000), rmax: 0.8, drift: 2.5,  base: 0.22 },
+      { count: Math.floor((W * H) / 22000), rmax: 1.4, drift: 6.0,  base: 0.40 },
+      { count: Math.floor((W * H) / 42000), rmax: 2.2, drift: 12.0, base: 0.62 }
+    ];
+    for (const d of depths) {
+      const arr = [];
+      const cap = Math.min(d.count, 320);
+      for (let i = 0; i < cap; i++) {
+        arr.push({
+          x: Math.random() * W, y: Math.random() * H,
+          r: 0.3 + Math.random() * d.rmax,
+          t: Math.random() * Math.PI * 2,
+          s: 0.006 + Math.random() * 0.02,
+          hue: Math.random()
+        });
+      }
+      layers.push({ stars: arr, drift: d.drift, base: d.base });
+    }
+  }
+  function drawStars(dt, t) {
+    ctx.globalCompositeOperation = "lighter";
+    for (const L of layers) {
+      const dx = (t * 0.00001 * L.drift) % W;
+      for (const s of L.stars) {
+        s.t += s.s;
+        const tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(s.t));
+        const a = L.base * tw;
+        let px = s.x - dx; if (px < 0) px += W;
+        const col = s.hue < 0.5 ? "200,225,255" : (s.hue < 0.8 ? "200,170,255" : "255,200,225");
+        ctx.beginPath();
+        ctx.arc(px, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${col},${a})`;
+        if (s.r > 1.4) { ctx.shadowColor = `rgba(${col},${a})`; ctx.shadowBlur = 8; }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---------------------------------------------------------------------------
+  // REAL TSP — mirrors colony/tsp.py exactly.
+  //   1. nearest-neighbour construction
+  //   2. 2-opt: reverse seg i..k iff D[a,c]+D[b,d] < D[a,b]+D[c,d]
+  //   3. lower bound = (1/2) * sum_i min_{j!=i} D[i,j]   (admissible)
+  //   gap = (length - lower_bound) / lower_bound
+  // ---------------------------------------------------------------------------
+  const PAD = 96;
+  let pts = [], D = [], N = 0;
+  let tour = [], lowerBound = 0;
+  let phase = "build"; // build -> opt -> done
+  let moveCount = 0;
+
+  function dist(a, b) {
+    const dx = pts[a][0] - pts[b][0], dy = pts[a][1] - pts[b][1];
+    return Math.hypot(dx, dy);
+  }
+  function buildD() {
+    D = [];
+    for (let i = 0; i < N; i++) {
+      const row = new Float64Array(N);
+      for (let j = 0; j < N; j++) row[j] = (i === j) ? Infinity : dist(i, j);
+      D.push(row);
+    }
+  }
+  function tourLength(t) {
+    let L = 0;
+    for (let i = 0; i < t.length; i++) L += dist(t[i], t[(i + 1) % t.length]);
+    return L;
+  }
+  function computeLowerBound() {
+    let s = 0;
+    for (let i = 0; i < N; i++) {
+      let m = Infinity;
+      for (let j = 0; j < N; j++) if (i !== j && D[i][j] < m) m = D[i][j];
+      s += m;
+    }
+    return s / 2;
+  }
+
+  // nearest neighbour, stepped for the build-up
+  let nnVisited = null, nnCurrent = 0;
+  function nnStart() {
+    tour = [0];
+    nnVisited = new Uint8Array(N); nnVisited[0] = 1; nnCurrent = 0;
+    phase = "build";
+  }
+  function nnStep() {
+    let best = -1, bd = Infinity;
+    for (let j = 0; j < N; j++) {
+      if (!nnVisited[j] && D[nnCurrent][j] < bd) { bd = D[nnCurrent][j]; best = j; }
+    }
+    if (best === -1) { phase = "opt"; return; }
+    nnVisited[best] = 1; tour.push(best); nnCurrent = best;
+  }
+
+  // 2-opt — one improving reversal per visible step (so each uncrossing is seen)
+  let optI = 1;
+  let flashSeg = null, flashT = 0;          // the swapped edge pair, for a bright pulse
+  function twoOptStep() {
+    const n = tour.length;
+    let scanned = 0;
+    let i = optI;
+    while (scanned < n - 1) {
+      const a = tour[i - 1], b = tour[i];
+      for (let k = i + 1; k < n; k++) {
+        const c = tour[k], d = tour[(k + 1) % n];
+        if (d === a) continue;
+        const before = D[a][b] + D[c][d];
+        const after = D[a][c] + D[b][d];
+        if (after + 1e-9 < before) {
+          // reverse segment i..k — the polyline visibly tightens / uncrosses
+          let lo = i, hi = k;
+          while (lo < hi) { const tmp = tour[lo]; tour[lo] = tour[hi]; tour[hi] = tmp; lo++; hi--; }
+          // the two NEW edges (a,c) and (b,d) become bright + get a pheromone deposit
+          flashSeg = [tour[i - 1], tour[i], tour[k], tour[(k + 1) % n]];
+          flashT = 1;
+          // mark the two new edges as freshly improved -> strong pheromone deposit
+          depositPheromone(tour[i - 1], tour[i], 1.0);
+          depositPheromone(tour[k], tour[(k + 1) % n], 1.0);
+          moveCount++;
+          optI = (i + 1 < n - 1) ? i + 1 : 1;
+          return true;
+        }
+      }
+      i++; if (i >= n - 1) i = 1;
+      scanned++;
+    }
+    phase = "done";
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // PHEROMONE — golden trails that bloom on edges of the *current* tour and decay.
+  // Edges that keep surviving 2-opt accumulate intensity; edges that get removed
+  // stop being reinforced and fade. This reflects "good edges persist".
+  // ---------------------------------------------------------------------------
+  let pher = new Map(); // key "i-j" (i<j) -> intensity 0..~2
+  function edgeKey(a, b) { return a < b ? a + "-" + b : b + "-" + a; }
+  function depositPheromone(a, b, amt) {
+    const k = edgeKey(a, b);
+    pher.set(k, Math.min(2.2, (pher.get(k) || 0) + amt));
+  }
+  function reinforceTour() {
+    for (let i = 0; i < tour.length; i++) {
+      depositPheromone(tour[i], tour[(i + 1) % tour.length], 0.045);
+    }
+  }
+  function decayPheromone() {
+    for (const [k, v] of pher) {
+      const nv = v * 0.965;
+      if (nv < 0.02) pher.delete(k); else pher.set(k, nv);
+    }
+  }
+  function drawPheromone() {
+    if (pher.size === 0) return;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (const [k, v] of pher) {
+      const dash = k.indexOf("-");
+      const a = +k.slice(0, dash), b = +k.slice(dash + 1);
+      const inten = Math.min(1, v / 1.6);
+      ctx.beginPath();
+      ctx.moveTo(pts[a][0], pts[a][1]);
+      ctx.lineTo(pts[b][0], pts[b][1]);
+      ctx.strokeStyle = `rgba(255,210,122,${0.10 + inten * 0.55})`;
+      ctx.lineWidth = 1 + inten * 5.5;
+      ctx.shadowColor = "#ffcf6e";
+      ctx.shadowBlur = 8 + inten * 22;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tour rendering — additive cyan->purple->pink ramp with bloom, plus a
+  // travelling "current" comet during the build-up.
+  // ---------------------------------------------------------------------------
+  function drawTour(t) {
+    if (tour.length < 2) return;
+    const closed = (phase !== "build") || tour.length === N;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+
+    // wide soft glow underlay
+    ctx.beginPath();
+    ctx.moveTo(pts[tour[0]][0], pts[tour[0]][1]);
+    for (let i = 1; i < tour.length; i++) ctx.lineTo(pts[tour[i]][0], pts[tour[i]][1]);
+    if (closed) ctx.lineTo(pts[tour[0]][0], pts[tour[0]][1]);
+    ctx.strokeStyle = "rgba(120,150,255,0.16)";
+    ctx.lineWidth = 10;
+    ctx.shadowColor = "#8aa0ff"; ctx.shadowBlur = 26;
+    ctx.stroke();
+
+    // crisp gradient core
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#6ee7ff");
+    g.addColorStop(0.5, "#c084fc");
+    g.addColorStop(1, "#f472b6");
+    ctx.beginPath();
+    ctx.moveTo(pts[tour[0]][0], pts[tour[0]][1]);
+    for (let i = 1; i < tour.length; i++) ctx.lineTo(pts[tour[i]][0], pts[tour[i]][1]);
+    if (closed) ctx.lineTo(pts[tour[0]][0], pts[tour[0]][1]);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.9;
+    ctx.shadowColor = "#c084fc"; ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // flash the just-improved edge pair: a bright pink pulse along the new edges
+    if (flashSeg && flashT > 0) {
+      const [a, b, c, d] = flashSeg;
+      ctx.strokeStyle = `rgba(244,114,182,${flashT})`;
+      ctx.lineWidth = 2 + flashT * 3;
+      ctx.shadowColor = "#f472b6"; ctx.shadowBlur = 14 + flashT * 16;
+      ctx.beginPath();
+      ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+      ctx.moveTo(pts[c][0], pts[c][1]); ctx.lineTo(pts[d][0], pts[d][1]);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      flashT *= 0.9;
+      if (flashT < 0.04) flashSeg = null;
+    }
+
+    // build-up comet: a glowing head racing along the growing path
+    if (phase === "build" && tour.length >= 1) {
+      const head = pts[tour[tour.length - 1]];
+      const pulse = 5 + 2.5 * Math.sin(t * 0.012);
+      ctx.beginPath();
+      ctx.arc(head[0], head[1], pulse, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(110,231,255,0.9)";
+      ctx.shadowColor = "#6ee7ff"; ctx.shadowBlur = 24;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Star-nodes (cities)
+  // ---------------------------------------------------------------------------
+  function drawNodes(t) {
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < N; i++) {
+      const [x, y] = pts[i];
+      const tw = 0.7 + 0.3 * Math.sin(t * 0.003 + i * 1.7);
+      // halo
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(232,236,255,${0.9 * tw})`;
+      ctx.shadowColor = "#c084fc"; ctx.shadowBlur = 14;
+      ctx.fill();
+      // tiny 4-point sparkle for the brighter nodes
+      if (i % 3 === 0) {
+        ctx.strokeStyle = `rgba(200,225,255,${0.4 * tw})`;
+        ctx.lineWidth = 0.8; ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y);
+        ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5);
+        ctx.stroke();
+      }
+    }
+    ctx.shadowBlur = 0;
+    // start city — pink ring
+    const s0 = pts[0];
+    ctx.beginPath();
+    ctx.arc(s0[0], s0[1], 6 + 1.2 * Math.sin(t * 0.006), 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(244,114,182,0.9)"; ctx.lineWidth = 1.4;
+    ctx.shadowColor = "#f472b6"; ctx.shadowBlur = 12; ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---------------------------------------------------------------------------
+  function regenerate() {
+    makeStars();
+    pher = new Map();
+    moveCount = 0;
+    N = Math.max(16, Math.min(40, Math.floor((W * H) / 40000)));
+    pts = [];
+    // blue-noise-ish scatter: rejection sample for a pleasing spread
+    const minD = Math.min(W, H) * 0.06;
+    let guard = 0;
+    while (pts.length < N && guard < N * 60) {
+      guard++;
+      const p = [PAD + Math.random() * (W - 2 * PAD), PAD + Math.random() * (H - 2 * PAD)];
+      let ok = true;
+      for (const q of pts) { if (Math.hypot(p[0]-q[0], p[1]-q[1]) < minD) { ok = false; break; } }
+      if (ok) pts.push(p);
+    }
+    while (pts.length < N) pts.push([PAD + Math.random()*(W-2*PAD), PAD + Math.random()*(H-2*PAD)]);
+    N = pts.length;
+    buildD();
+    lowerBound = computeLowerBound();
+    nnStart();
+    optI = 1; flashSeg = null; flashT = 0;
+    $("lb").textContent = lowerBound.toFixed(1);
+    $("moves").textContent = "0";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main loop with an arc: build -> reveal/optimize -> hold -> dissolve -> loop
+  // ---------------------------------------------------------------------------
+  let acc = 0, last = performance.now();
+  let restartAt = 0;
+  let fade = 0; // 0..1 dissolve
+
+  function frame(now) {
+    let dt = now - last; last = now;
+    if (dt > 80) dt = 80; // clamp after tab-switch so the loop stays smooth
+
+    drawNebula(now);
+    // near-black wash on top of the nebula to deepen contrast
+    ctx.fillStyle = "rgba(4,3,15,0.55)";
+    ctx.fillRect(0, 0, W, H);
+
+    drawStars(dt, now);
+
+    // advance the algorithm at a watchable pace
+    if (phase !== "done") {
+      acc += dt;
+      const stepEvery = phase === "build" ? 78 : 46;
+      let budget = 4; // cap steps/frame so a big instance can't stall the loop
+      while (acc >= stepEvery && budget-- > 0) {
+        acc -= stepEvery;
+        if (phase === "build") nnStep();
+        else if (phase === "opt") twoOptStep();
+      }
+    }
+
+    // pheromone: reinforce the live tour, decay the rest
+    if (phase !== "build") reinforceTour();
+    decayPheromone();
+
+    // dissolve handling
+    if (phase === "done") {
+      if (restartAt === 0) restartAt = now + 3200;
+      else if (now > restartAt - 1400) fade = Math.min(1, (now - (restartAt - 1400)) / 1400);
+      if (now > restartAt) { restartAt = 0; fade = 0; regenerate(); }
+    }
+
+    ctx.save();
+    if (fade > 0) ctx.globalAlpha = 1 - fade;
+    drawPheromone();
+    drawTour(now);
+    drawNodes(now);
+    ctx.restore();
+
+    // vignette
+    const rg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.2, W/2, H/2, Math.max(W,H)*0.75);
+    rg.addColorStop(0, "rgba(2,1,8,0)");
+    rg.addColorStop(1, "rgba(1,0,6,0.72)");
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+
+    // faint film grain (cheap: sparse dots)
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 26; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.018})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    }
+    ctx.globalCompositeOperation = "source-over";
+
+    // HUD
+    const L = tourLength(tour);
+    $("len").textContent = L.toFixed(1);
+    $("phase").textContent = phase === "build" ? "nearest-neighbour" : phase === "opt" ? "2-opt untangling" : "2-optimal";
+    $("moves").textContent = String(moveCount);
+    if (phase !== "build" && lowerBound > 0) {
+      const gap = (L - lowerBound) / lowerBound;
+      $("gap").textContent = (gap * 100).toFixed(1) + "%";
+      const pct = Math.max(2, Math.min(100, gap * 100));
+      $("gapbar").style.width = pct + "%";
+    } else {
+      $("gap").textContent = "—";
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  regenerate();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

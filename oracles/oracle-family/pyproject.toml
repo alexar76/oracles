@@ -1,0 +1,31 @@
+[project]
+# Renamed from "oracle-family" on 2026-07-30, before first publish. Unprefixed short names on
+# PyPI belong to other people and can install colliding top-level modules — the incident
+# that made this a rule is recorded at the top of oracles/core/pyproject.toml. "oracle-family"
+# was unclaimed, which is not safe but claimable: anyone taking it makes
+# `pip install oracle-family` fetch their code into a namespace this repo imports.
+name = "aimarket-oracle-family"
+version = "0.1.0"
+description = "AIMarket Oracle Family — one endpoint serving every oracle_core oracle"
+requires-python = ">=3.11"
+# The individual oracle packages (chronos/lattice/murmuration/lumen/colony/turing)
+# are installed by the Dockerfile via local paths, not from an index.
+# >=0.3, not >=0.2: this app imports chronos.capabilities and aestus.capabilities, whose
+# Capability(...) calls use fields core only gained in 0.3.0. Live 0.2.0 satisfies >=0.2, so
+# the floor was one the OLD version could meet when it must not — and load_specs below used to
+# swallow the resulting TypeError, so the family booted 200 while serving 5 fewer capabilities.
+dependencies = ["aimarket-oracle-core>=0.3", "httpx>=0.27.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "httpx>=0.27.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["oracle_family_app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

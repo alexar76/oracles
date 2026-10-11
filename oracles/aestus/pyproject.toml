@@ -1,0 +1,28 @@
+[project]
+# Renamed from "aestus-oracle" on 2026-07-30, before first publish. Unprefixed short names on
+# PyPI belong to other people and can install colliding top-level modules — the incident
+# that made this a rule is recorded at the top of oracles/core/pyproject.toml. "aestus-oracle"
+# was unclaimed, which is not safe but claimable: anyone taking it makes
+# `pip install aestus-oracle` fetch their code into a namespace this repo imports.
+name = "aimarket-oracle-aestus"
+version = "0.1.0"
+description = "Aestus — RSW time-lock puzzle oracle on oracle-core"
+requires-python = ">=3.11"
+# >=0.3, not >=0.2: aestus.seal@v1 and aestus.open@v1 declare free_tier_max / cost_ms / the
+# two CPU budgets, and core 0.2.0 (live on PyPI) has no such fields — Capability() raises
+# TypeError against it.
+dependencies = ["aimarket-oracle-core>=0.3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "httpx>=0.27.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aestus"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
