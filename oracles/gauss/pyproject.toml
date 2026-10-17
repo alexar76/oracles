@@ -7,6 +7,9 @@
 name = "aimarket-oracle-gauss"
 version = "0.1.0"
 description = "Gauss — Gaussian-Process regression (posterior uncertainty + Expected-Improvement) oracle on oracle-core"
+# `scripts/publish_pypi.sh` runs `twine check --strict`, which fails when
+# `long_description` is empty. `readme` fills it and sets text/markdown. Matches oracles/core.
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["aimarket-oracle-core>=0.2", "numpy"]
 
@@ -19,6 +22,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["gauss"]
+
+# Allow-list, as in sortes and oracle-family. With no sdist target, hatchling falls back
+# to "everything not matched by a discovered .gitignore" and walks UP for that file.
+# No LICENSE in this package, so it is not on the list.
+[tool.hatch.build.targets.sdist]
+include = ["/gauss", "/tests", "/README.md", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

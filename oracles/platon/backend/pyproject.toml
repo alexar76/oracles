@@ -46,6 +46,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["platon"]
 
+# Allow-list, as in sortes and oracle-family. With no sdist target, hatchling falls back
+# to "everything not matched by a discovered .gitignore" and walks UP for that file.
+# No LICENSE in this package, so it is not on the list.
+[tool.hatch.build.targets.sdist]
+include = ["/platon", "/tests", "/README.md", "/pyproject.toml"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

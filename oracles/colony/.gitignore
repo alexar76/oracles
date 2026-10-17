@@ -1,0 +1,17 @@
+# Package-local, for the same two reasons as oracles/oracles/sortes/.gitignore:
+#
+# 1. It stops hatchling walking up. Without a file here the build reaches the monorepo
+#    .gitignore and force-includes that map of secret paths into the sdist.
+# 2. hatchling force-includes whichever exclusion file it found, bypassing `exclude`,
+#    so that file WILL be published. Better this one than the monorepo inventory.
+#
+# The real guarantee is the allow-list in pyproject.toml plus the gate in scripts/publish_pypi.sh.
+
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+data/
+build/
+.pytest_cache/

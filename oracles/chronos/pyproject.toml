@@ -7,6 +7,9 @@
 name = "aimarket-oracle-chronos"
 version = "0.1.0"
 description = "Chronos — verifiable delay function (VDF) oracle on oracle-core"
+# `scripts/publish_pypi.sh` runs `twine check --strict`, which fails when
+# `long_description` is empty. `readme` fills it and sets text/markdown. Matches oracles/core.
+readme = "README.md"
 requires-python = ">=3.11"
 # >=0.3, not >=0.2: chronos.eval@v1 declares free_tier_max / cost_ms / the two CPU budgets,
 # and core 0.2.0 (live on PyPI) has no such fields — Capability() raises TypeError against it.
@@ -21,6 +24,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chronos"]
+
+# Allow-list, as in sortes and oracle-family. With no sdist target, hatchling falls back
+# to "everything not matched by a discovered .gitignore" and walks UP for that file.
+# No LICENSE in this package, so it is not on the list.
+[tool.hatch.build.targets.sdist]
+include = ["/chronos", "/tests", "/README.md", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
