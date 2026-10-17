@@ -7,6 +7,11 @@
 name = "aimarket-oracle-family"
 version = "0.1.0"
 description = "AIMarket Oracle Family — one endpoint serving every oracle_core oracle"
+# Both fields are required to publish, not cosmetic: `scripts/publish_pypi.sh` runs
+# `twine check --strict`, which fails a distribution whose `long_description` is empty, so
+# without `readme` the upload aborts after the build. Matches oracles/core and sortes.
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 # The individual oracle packages (chronos/lattice/murmuration/lumen/colony/turing)
 # are installed by the Dockerfile via local paths, not from an index.
@@ -25,6 +30,20 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["oracle_family_app"]
+
+# An ALLOW-list, as in sortes and oracles/core: with no sdist target, hatchling falls back to
+# "everything not matched by a discovered .gitignore" and walks UP for that file. Outside this
+# monorepo the `**/data/` rule vanishes, and data/oracle_family_signing_key — the family's
+# Ed25519 PRIVATE key, which signs every oracle's receipts — would ship in the tarball.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/oracle_family_app",
+    "/tests",
+    "/README.md",
+    "/pyproject.toml",
+]
+# hatchling adds .gitignore on its own; it is a map of where the monorepo's secrets live.
+exclude = ["/.gitignore"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
