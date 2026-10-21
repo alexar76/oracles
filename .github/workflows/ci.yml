@@ -20,6 +20,10 @@ jobs:
       - name: Install oracle-core + all oracles
         run: |
           python -m pip install --upgrade pip
+          # LUMEN's hub contract test imports aimarket_hub on purpose (no skip), so the hub is installed.
+          git clone --no-checkout https://github.com/alexar76/aimarket-hub.git _deps/aimarket-hub
+          git -C _deps/aimarket-hub checkout 0d03800fae920d1de44dee9c6e6e589b6274c631  # alexar76/aimarket-hub main, 2026-10-21
+          pip install -e _deps/aimarket-hub
           pip install -e "core[dev,pqc]"
           for o in chronos lattice murmuration lumen colony turing; do
             pip install -e "oracles/$o"

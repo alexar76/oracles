@@ -9,7 +9,7 @@
 
 <!-- aicom-readme-badges -->
 <p align="center">
-  <a href="https://github.com/alexar76/oracles/actions/workflows/ci.yml"><img src="https://raw.githubusercontent.com/alexar76/oracles/refs/heads/main/docs/badges/ci.svg" alt="CI" /></a>
+  <a href="https://github.com/alexar76/oracles/actions/workflows/ci.yml"><img src="https://github.com/alexar76/oracles/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://raw.githubusercontent.com/alexar76/oracles/refs/heads/main/docs/badges/tests.svg" alt="153 tests passing" />
   <img src="https://raw.githubusercontent.com/alexar76/oracles/refs/heads/main/docs/badges/aimarket.svg" alt="AIMarket v2" />
   <img src="https://raw.githubusercontent.com/alexar76/oracles/refs/heads/main/docs/badges/signing.svg" alt="Ed25519 + ML-DSA signing" />
