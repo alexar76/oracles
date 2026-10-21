@@ -14,9 +14,9 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from platon.aimarket import invoke, manifest, well_known
-from platon.config import settings
-from platon.simulation import engine
+from oracle_platon.aimarket import invoke, manifest, well_known
+from oracle_platon.config import settings
+from oracle_platon.simulation import engine
 
 
 class SteerRequest(BaseModel):
@@ -212,7 +212,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    from platon.oracle import oracle_info
+    from oracle_platon.oracle import oracle_info
 
     return {
         "status": "ok",
@@ -232,7 +232,7 @@ async def get_state() -> dict[str, Any]:
 @app.get("/api/hub/status")
 async def hub_status() -> dict[str, Any]:
     """Federation posture: our manifest self-check + live hub reachability."""
-    from platon import hub_client
+    from oracle_platon import hub_client
 
     return {
         "hub_url": settings.hub_url,
@@ -271,7 +271,7 @@ async def dream(request: Request, steps: int = 60) -> dict[str, Any]:
 @app.post("/api/ask")
 async def ask(req: AskRequest, request: Request) -> dict[str, Any]:
     """Grounded, read-only informational guide (localized)."""
-    from platon.ask import answer
+    from oracle_platon.ask import answer
 
     if not _ask_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="rate limited")
@@ -281,8 +281,8 @@ async def ask(req: AskRequest, request: Request) -> dict[str, Any]:
 @app.get("/api/beacon")
 async def beacon_feed(limit: int = 20) -> dict[str, Any]:
     """Recent hash-chained beacon rounds + an integrity-verification flag."""
-    from platon.aimarket import beacon
-    from platon.randomness import verify_beacon_chain
+    from oracle_platon.aimarket import beacon
+    from oracle_platon.randomness import verify_beacon_chain
 
     rounds = list(beacon.rounds)
     # `beacon.rounds` is a bounded rolling window (deque) that legitimately drops
@@ -300,8 +300,8 @@ async def beacon_feed(limit: int = 20) -> dict[str, Any]:
 async def beacon_checkpoint() -> dict[str, Any]:
     """Sign a commitment to the chain head; if an anchor webhook is configured,
     push it to that external transparency log (fire-and-forget)."""
-    from platon.aimarket import beacon
-    from platon.aimarket import utc_now_z
+    from oracle_platon.aimarket import beacon
+    from oracle_platon.aimarket import utc_now_z
 
     cp = beacon.checkpoint(utc_now_z())
     if settings.beacon_anchor_webhook:
@@ -447,7 +447,7 @@ def main() -> None:
     import uvicorn
 
     uvicorn.run(
-        "platon.main:app",
+        "oracle_platon.main:app",
         host=settings.host,
         port=settings.port,
         reload=False,

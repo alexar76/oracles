@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from platon.dynamics import DynamicsState, step, stiefel_projection
+from oracle_platon.dynamics import DynamicsState, step, stiefel_projection
 
 TRAJECTORIES = 16  # diverse local rollouts -> design matrix is not collinear
 SAMPLES_PER_TRAJ = 18  # 16*18 = 288 pairs >> 65 params/output

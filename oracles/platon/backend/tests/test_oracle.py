@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from platon.oracle import generate_witness, oracle_info
-from platon.oracle_providers import generate_text, resolve_provider_chain
+from oracle_platon.oracle import generate_witness, oracle_info
+from oracle_platon.oracle_providers import generate_text, resolve_provider_chain
 
 
 @pytest.mark.asyncio
 async def test_generate_witness_template_fallback(monkeypatch):
     monkeypatch.setenv("PLATON_ORACLE_PROVIDER", "template")
-    from platon.config import settings
+    from oracle_platon.config import settings
 
     settings.oracle_provider = "template"
     result = await generate_witness(
@@ -24,13 +24,13 @@ async def test_generate_witness_template_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_openai_provider_used(monkeypatch):
     monkeypatch.setenv("PLATON_ORACLE_PROVIDER", "openai")
-    from platon.config import settings
+    from oracle_platon.config import settings
 
     settings.oracle_provider = "openai"
     settings.openai_api_key = "sk-test"
 
     with patch(
-        "platon.oracle_providers._openai_compatible",
+        "oracle_platon.oracle_providers._openai_compatible",
         new_callable=AsyncMock,
         return_value="Witness from OpenAI.",
     ) as mock_openai:
@@ -43,13 +43,13 @@ async def test_openai_provider_used(monkeypatch):
 @pytest.mark.asyncio
 async def test_anthropic_provider_used(monkeypatch):
     monkeypatch.setenv("PLATON_ORACLE_PROVIDER", "anthropic")
-    from platon.config import settings
+    from oracle_platon.config import settings
 
     settings.oracle_provider = "anthropic"
     settings.anthropic_api_key = "ant-test"
 
     with patch(
-        "platon.oracle_providers._anthropic",
+        "oracle_platon.oracle_providers._anthropic",
         new_callable=AsyncMock,
         return_value="Witness from Claude.",
     ):
@@ -61,7 +61,7 @@ def test_auto_chain_skips_missing_keys(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from platon.config import settings
+    from oracle_platon.config import settings
 
     settings.oracle_provider = "auto"
     settings.deepseek_api_key = None
@@ -90,9 +90,9 @@ def test_oracle_info_lists_providers():
 # as Platon vouching for the draw.
 
 def test_a_draw_signed_by_a_stranger_is_not_valid():
-    import platon.aimarket as A
-    from platon.randomness import randomness_canonical
-    from platon.signing import Signer
+    import oracle_platon.aimarket as A
+    from oracle_platon.randomness import randomness_canonical
+    from oracle_platon.signing import Signer
 
     stranger = Signer("/tmp/platon-stranger-verify.key")
     # Take a genuine draw for its exact proof shape, then re-sign the whole thing with a
@@ -119,7 +119,7 @@ def test_a_draw_signed_by_a_stranger_is_not_valid():
 
 def test_a_genuine_platon_draw_still_verifies():
     """The capability has to keep working for the thing it is for."""
-    import platon.aimarket as A
+    import oracle_platon.aimarket as A
 
     drawn = A._HANDLERS["platon.random@v1"]({"num_bytes": 32})
     out = A._HANDLERS["platon.verify@v1"]({

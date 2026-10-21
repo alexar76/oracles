@@ -8,8 +8,8 @@ import time
 from collections import deque
 from typing import Any
 
-from platon.config import settings
-from platon.oracle_providers import generate_text, list_provider_status
+from oracle_platon.config import settings
+from oracle_platon.oracle_providers import generate_text, list_provider_status
 
 
 WITNESS_TEMPLATES = {

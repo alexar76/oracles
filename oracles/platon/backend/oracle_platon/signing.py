@@ -25,7 +25,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from platon.config import settings
+from oracle_platon.config import settings
 
 try:  # optional post-quantum signature (FIPS 204 ML-DSA-65), pure-Python
     from dilithium_py.ml_dsa import ML_DSA_65 as _MLDSA

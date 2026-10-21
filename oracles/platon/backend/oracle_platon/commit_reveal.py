@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from platon.randomness import _expand
+from oracle_platon.randomness import _expand
 
 SCHEME = "platon-commit-reveal/v1"
 
@@ -108,7 +108,7 @@ class CommitRevealBeacon:
 def verify_reveal(rec: dict[str, Any], public_key_b64: str | None = None) -> bool:
     """Verify a reveal end-to-end: commitment binding, output derivation, and both
     signatures (commit was signed before the client seed; reveal matches it)."""
-    from platon.signing import Signer
+    from oracle_platon.signing import Signer
 
     # 1. commitment binds the revealed preimage
     if hashlib.sha256(rec["preimage"].encode()).hexdigest() != rec["commitment"]:

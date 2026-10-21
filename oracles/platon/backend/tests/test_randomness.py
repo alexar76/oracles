@@ -3,7 +3,7 @@ import hashlib
 import numpy as np
 import pytest
 
-from platon.randomness import (
+from oracle_platon.randomness import (
     GENESIS_HASH,
     Beacon,
     beacon_round_canonical,
@@ -13,7 +13,7 @@ from platon.randomness import (
     verify_checkpoint,
     verify_randomness,
 )
-from platon.signing import Signer
+from oracle_platon.signing import Signer
 
 
 def _other_first_byte(hex_str: str) -> str:
@@ -220,12 +220,12 @@ class TestBeacon:
 
 class TestCommitReveal:
     def _beacon(self, signer):
-        from platon.commit_reveal import CommitRevealBeacon
+        from oracle_platon.commit_reveal import CommitRevealBeacon
 
         return CommitRevealBeacon(signer)
 
     def test_commit_reveal_verifies(self, signer):
-        from platon.commit_reveal import verify_reveal
+        from oracle_platon.commit_reveal import verify_reveal
 
         b = self._beacon(signer)
         v = np.zeros(64)
@@ -235,7 +235,7 @@ class TestCommitReveal:
         assert verify_reveal(r, signer.public_key_b64) is True
 
     def test_commitment_binds_preimage(self, signer):
-        from platon.commit_reveal import verify_reveal
+        from oracle_platon.commit_reveal import verify_reveal
 
         b = self._beacon(signer)
         c = b.commit(np.zeros(64), 1, "2026-06-13T10:00:00Z")

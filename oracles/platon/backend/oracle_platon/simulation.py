@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 
-from platon.config import settings
-from platon.dynamics import (
+from oracle_platon.config import settings
+from oracle_platon.dynamics import (
     DynamicsState,
     detect_event,
     lyapunov_proxy,
@@ -19,8 +19,8 @@ from platon.dynamics import (
     steer_from_text,
     step,
 )
-from platon.oracle import generate_witness
-from platon.surrogate import dream_trajectory
+from oracle_platon.oracle import generate_witness
+from oracle_platon.surrogate import dream_trajectory
 
 # Window (in ticks) over which effective dimensionality (top-3 PCA energy) is
 # measured. A single state is rank-1; phases need a few time units to spread for

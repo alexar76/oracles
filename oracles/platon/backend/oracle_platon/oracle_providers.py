@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import httpx
 
-from platon.config import settings
+from oracle_platon.config import settings
 
 ProviderName = Literal["deepseek", "openai", "anthropic", "ollama"]
 

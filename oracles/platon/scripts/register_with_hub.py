@@ -22,8 +22,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 os.environ.setdefault("PLATON_TESTING", "1")
 
-from platon import hub_client  # noqa: E402
-from platon.config import settings  # noqa: E402
+from oracle_platon import hub_client  # noqa: E402
+from oracle_platon.config import settings  # noqa: E402
 
 
 def show(title: str, payload: object) -> None:

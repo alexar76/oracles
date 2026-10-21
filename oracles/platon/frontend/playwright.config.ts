@@ -14,7 +14,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "cd ../backend && .venv/bin/python -m uvicorn platon.main:app --host 127.0.0.1 --port 9200",
+      command: "cd ../backend && .venv/bin/python -m uvicorn oracle_platon.main:app --host 127.0.0.1 --port 9200",
       url: "http://127.0.0.1:9200/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

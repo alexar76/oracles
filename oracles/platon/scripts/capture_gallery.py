@@ -50,7 +50,7 @@ def capture() -> None:
     except RuntimeError:
         print("▸ Starting backend for capture…")
         subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "platon.main:app", "--host", "127.0.0.1", "--port", "9200"],
+            [sys.executable, "-m", "uvicorn", "oracle_platon.main:app", "--host", "127.0.0.1", "--port", "9200"],
             cwd=ROOT / "backend",
         )
         wait_for_stack(base_api)

@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from platon.dynamics import (
+from oracle_platon.dynamics import (
     DynamicsState,
     detect_event,
     lyapunov_proxy,
@@ -10,7 +10,7 @@ from platon.dynamics import (
     step,
     N,
 )
-from platon.surrogate import dream_trajectory, fit_linear_model
+from oracle_platon.surrogate import dream_trajectory, fit_linear_model
 
 
 class TestDynamics:

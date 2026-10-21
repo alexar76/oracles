@@ -17,9 +17,9 @@ from typing import Any, Optional
 
 import httpx
 
-from platon.aimarket import CAPABILITIES, manifest
-from platon.config import settings
-from platon.signing import Signer
+from oracle_platon.aimarket import CAPABILITIES, manifest
+from oracle_platon.config import settings
+from oracle_platon.signing import Signer
 
 _signer = Signer(settings.signing_key_path)
 

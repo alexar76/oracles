@@ -153,7 +153,7 @@ def verify_randomness(result: dict[str, Any], public_key_b64: str | None = None)
     (operator grinding / an unopened commitment) is rejected, not just accepted
     on the strength of a signature the operator can always produce.
     """
-    from platon.signing import Signer
+    from oracle_platon.signing import Signer
 
     sig = result.get("signature") or {}
     key = public_key_b64 or sig.get("public_key")
@@ -282,7 +282,7 @@ def checkpoint_canonical(cp: dict[str, Any]) -> str:
 
 
 def verify_checkpoint(cp: dict[str, Any], public_key_b64: str | None = None) -> bool:
-    from platon.signing import Signer
+    from oracle_platon.signing import Signer
 
     sig = cp.get("signature") or {}
     key = public_key_b64 or sig.get("public_key")
@@ -305,7 +305,7 @@ def verify_beacon_chain(
     integrity-check a known rolling window that legitimately omits genesis (e.g.
     the operator's own bounded in-memory deque after eviction).
     """
-    from platon.signing import Signer
+    from oracle_platon.signing import Signer
 
     if not rounds:
         # An empty list anchors nothing; only meaningful as a rolling-window check.

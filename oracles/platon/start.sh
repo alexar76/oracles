@@ -9,7 +9,7 @@ if [ ! -d .venv ]; then
   .venv/bin/pip install -e ".[dev]" -q
 fi
 export PLATON_PUBLIC_URL="${PLATON_PUBLIC_URL:-http://localhost:9200}"
-.venv/bin/python -m uvicorn platon.main:app --host 0.0.0.0 --port 9200 &
+.venv/bin/python -m uvicorn oracle_platon.main:app --host 0.0.0.0 --port 9200 &
 BACK_PID=$!
 
 cd "$ROOT/frontend"

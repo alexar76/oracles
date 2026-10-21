@@ -1,18 +1,18 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from platon.main import app
-from platon.randomness import verify_randomness
-from platon.signing import Signer
-from platon.simulation import SimulationEngine
+from oracle_platon.main import app
+from oracle_platon.randomness import verify_randomness
+from oracle_platon.signing import Signer
+from oracle_platon.simulation import SimulationEngine
 
 
 @pytest.fixture
 def isolated_engine(monkeypatch):
     eng = SimulationEngine()
     eng.state.reset_random(seed=1)
-    monkeypatch.setattr("platon.main.engine", eng)
-    monkeypatch.setattr("platon.aimarket.engine", eng)
+    monkeypatch.setattr("oracle_platon.main.engine", eng)
+    monkeypatch.setattr("oracle_platon.aimarket.engine", eng)
     return eng
 
 
@@ -179,8 +179,8 @@ async def test_invoke_envelope_has_signed_receipt(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_invoke_beacon_chains(isolated_engine):
-    from platon.aimarket import beacon
-    from platon.randomness import verify_beacon_chain
+    from oracle_platon.aimarket import beacon
+    from oracle_platon.randomness import verify_beacon_chain
 
     beacon.rounds.clear()
     transport = ASGITransport(app=app)
@@ -210,7 +210,7 @@ async def test_manifest_self_verifies_and_has_random(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_metrics_are_measured_after_invokes(isolated_engine):
-    from platon.metrics import metrics
+    from oracle_platon.metrics import metrics
 
     metrics.reset()
     transport = ASGITransport(app=app)
@@ -274,7 +274,7 @@ async def test_ask_capability_invoke(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_ask_rate_limited(isolated_engine):
-    from platon.main import _ask_limiter
+    from oracle_platon.main import _ask_limiter
 
     _ask_limiter._buckets.clear()
     transport = ASGITransport(app=app)
@@ -289,7 +289,7 @@ async def test_ask_rate_limited(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_invoke_rate_limited(isolated_engine):
-    from platon.main import _invoke_limiter
+    from oracle_platon.main import _invoke_limiter
 
     _invoke_limiter._buckets.clear()
     transport = ASGITransport(app=app)
@@ -307,7 +307,7 @@ async def test_invoke_rate_limited(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_dream_rate_limited(isolated_engine):
-    from platon.main import _dream_limiter
+    from oracle_platon.main import _dream_limiter
 
     _dream_limiter._buckets.clear()
     transport = ASGITransport(app=app)
@@ -333,7 +333,7 @@ async def test_commit_reveal_via_invoke(isolated_engine):
             json={"capability_id": "platon.reveal@v1", "input": {"round": rnd, "client_seed": "z"}},
         )
     out = r.json()["output"]
-    from platon.commit_reveal import verify_reveal
+    from oracle_platon.commit_reveal import verify_reveal
 
     assert verify_reveal(out, out["signature"]["public_key"]) is True
 

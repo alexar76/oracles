@@ -17,8 +17,8 @@ import os
 
 import httpx
 
-from platon.config import settings
-from platon.prompt_firewall import (
+from oracle_platon.config import settings
+from oracle_platon.prompt_firewall import (
     rejected_answer,
     rejection_reason_if_blocked,
     wrap_user_question,
@@ -65,7 +65,7 @@ def build_live_context(engine) -> str:
         w = engine.witnesses[0]
         parts.append(f"latest_event={w.event} (\"{w.text[:160]}\")")
     try:
-        from platon.aimarket import CAPABILITIES, beacon
+        from oracle_platon.aimarket import CAPABILITIES, beacon
 
         latest = beacon.latest()
         if latest:

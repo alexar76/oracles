@@ -44,13 +44,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["platon"]
+# Imported as `oracle_platon`, not `platon`: aimarket-platon (platon/backend) installs a top-level
+# `platon`, and two distributions with one top-level name overwrite each other in site-packages
+# (2026-10-21, found by verify_published_dist_freshness.py before this one was ever published).
+packages = ["oracle_platon"]
 
 # Allow-list, as in sortes and oracle-family. With no sdist target, hatchling falls back
 # to "everything not matched by a discovered .gitignore" and walks UP for that file.
 # No LICENSE in this package, so it is not on the list.
 [tool.hatch.build.targets.sdist]
-include = ["/platon", "/tests", "/README.md", "/pyproject.toml"]
+include = ["/oracle_platon", "/tests", "/README.md", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

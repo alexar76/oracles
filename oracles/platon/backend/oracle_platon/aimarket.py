@@ -9,12 +9,12 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from platon.commit_reveal import CommitRevealBeacon
-from platon.config import settings
-from platon.metrics import metrics
-from platon.randomness import Beacon, draw_randomness, verify_randomness
-from platon.signing import Signer
-from platon.simulation import engine
+from oracle_platon.commit_reveal import CommitRevealBeacon
+from oracle_platon.config import settings
+from oracle_platon.metrics import metrics
+from oracle_platon.randomness import Beacon, draw_randomness, verify_randomness
+from oracle_platon.signing import Signer
+from oracle_platon.simulation import engine
 
 _signer = Signer(settings.signing_key_path)
 beacon = Beacon(_signer)
@@ -475,7 +475,7 @@ _MAX_TELEMETRY_BYTES = 2048
 
 def _sanitize_telemetry(raw: Any) -> dict[str, Any]:
     """Keep scalar telemetry fields, bounded in count, length and total size."""
-    from platon.prompt_firewall import rejection_reason_if_blocked
+    from oracle_platon.prompt_firewall import rejection_reason_if_blocked
 
     if not isinstance(raw, dict):
         raise ValueError("telemetry must be an object")
@@ -501,7 +501,7 @@ def _sanitize_telemetry(raw: Any) -> dict[str, Any]:
 
 async def _run_capability(capability_id: str, input_data: dict[str, Any]) -> Any:
     if capability_id == "platon.oracle@v1":
-        from platon.oracle import generate_witness
+        from oracle_platon.oracle import generate_witness
 
         supplied = input_data.get("telemetry")
         telem = _sanitize_telemetry(supplied) if supplied else engine.telemetry()
@@ -514,7 +514,7 @@ async def _run_capability(capability_id: str, input_data: dict[str, Any]) -> Any
 
 
     if capability_id == "platon.ask@v1":
-        from platon.ask import answer
+        from oracle_platon.ask import answer
 
         return await answer(
             input_data.get("question", ""), input_data.get("lang", "en"), engine

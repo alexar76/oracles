@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from platon.signing import Signer, pqc_available
+from oracle_platon.signing import Signer, pqc_available
 
 
 class TestEnvInjectedKey:
@@ -31,7 +31,7 @@ class TestPQCHybrid:
 
     @pytest.mark.skipif(not pqc_available(), reason="dilithium-py not installed")
     def test_hybrid_requires_both(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("platon.signing.settings.pqc_enabled", True)
+        monkeypatch.setattr("oracle_platon.signing.settings.pqc_enabled", True)
         s = Signer(tmp_path / "k")
         sig = s.sign_payload("hello|world")
         assert sig["algorithm"] == "ed25519" and sig["pq_algorithm"] == "ml-dsa-65"
