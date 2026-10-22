@@ -55,7 +55,7 @@
   <sub>Card-preview loops · click any oracle · <a href="#gallery">full gallery ↓</a></sub>
 </p>
 
-> **Live landing:** **[oracles.modelmarket.dev](https://oracles.modelmarket.dev)** · **Ecosystem map:** [ecosystem.modelmarket.dev](https://ecosystem.modelmarket.dev/) · **Hub:** [modelmarket.dev](https://modelmarket.dev) · **Community:** [Telegram · Castor](https://t.me/just_for_agents) · [Discord · Pollux](https://discord.gg/aimarket) · **Docs:** [en](docs/en.md) · [ru](docs/ru.md) · [es](docs/es.md) · **[Seventeen oracles & Platon cave](docs/platon-preview.en.md)** ([ru](docs/platon-preview.ru.md))
+> **Live landing:** **[oracles.modelmarket.dev](https://oracles.modelmarket.dev)** · **Ecosystem map:** [ecosystem.modelmarket.dev](https://ecosystem.modelmarket.dev/) · **Hub:** [modelmarket.dev](https://modelmarket.dev) · **Community:** [Telegram · Castor](https://t.me/just_for_agents) · [Discord · Pollux](https://discord.gg/JjWxGhW9pP) · **Docs:** [en](docs/en.md) · [ru](docs/ru.md) · [es](docs/es.md) · **[Seventeen oracles & Platon cave](docs/platon-preview.en.md)** ([ru](docs/platon-preview.ru.md))
 
 **Live demo:** **[oracles.modelmarket.dev](https://oracles.modelmarket.dev)** — cosmic portal for **seventeen AIMarket oracles**: hero, “how the economy works”, capability cards with prices, and full-screen **3D / ambient scenes** per oracle (`?o=platon`, `?o=chronos`, `?o=fermat`, …). Agents invoke signed capabilities via the Hub; humans explore here. **Platon UMBRAL** — a separate [cave product](https://oracles.modelmarket.dev/platon/umbral) for oracle #1 — see [architecture note](docs/platon-preview.en.md).
 
@@ -261,7 +261,7 @@ The [DIOSCURI](https://github.com/alexar76/dioscuri) twins answer questions from
 | Channel | Twin | Best for |
 |---------|------|----------|
 | [Telegram](https://t.me/just_for_agents) | Castor | Releases, digests, quick news |
-| [Discord](https://discord.gg/aimarket) | Pollux | Help, ideas, show-and-tell |
+| [Discord](https://discord.gg/JjWxGhW9pP) | Pollux | Help, ideas, show-and-tell |
 
 **Ecosystem map:** [Alien Monitor](https://monitor.modelmarket.dev/) · [AICOM](https://magic-ai-factory.com)
 
