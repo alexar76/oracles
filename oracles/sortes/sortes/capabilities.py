@@ -10,6 +10,7 @@ from typing import Any
 from oracle_core import Capability, OracleSpec
 
 from sortes import vrf
+from sortes._signing_key_storage import load_or_create_private_bytes
 
 # Largest output an unbounded caller may request. The protocol layer does NOT
 # validate input against input_schema, so the handler clamps num_bytes itself —
@@ -38,30 +39,21 @@ def _load_or_create_sk() -> bytes:
         sk = bytes.fromhex(env_sk)
         if len(sk) != 32:
             raise ValueError("SORTES_VRF_SK must be 32 bytes (64 hex chars)")
+        vrf.expand_sk(sk)  # Validate the identity and refuse publicly exposed seeds.
         return sk
 
     path = Path(os.environ.get("SORTES_VRF_SK_PATH", "data/sortes_vrf_sk"))
-    if path.exists():
-        sk = bytes.fromhex(path.read_text().strip())
-        if len(sk) == 32:
-            return sk
+    def validate(raw: bytes) -> bytes:
+        try:
+            sk = bytes.fromhex(raw.decode("ascii").strip())
+        except (UnicodeError, ValueError):
+            raise RuntimeError("Invalid VRF secret file; explicit identity recovery is required") from None
+        if len(sk) != 32:
+            raise RuntimeError("Invalid VRF secret file; expected 32 decoded bytes")
+        vrf.expand_sk(sk)
+        return sk
 
-    sk = secrets.token_bytes(32)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Created 0600 from the first byte: write-then-chmod left the secret key readable at
-        # the umask's mode for a moment, and O_EXCL keeps two starting processes from racing.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            fh.write(sk.hex())
-    except FileExistsError:
-        existing = bytes.fromhex(path.read_text().strip())
-        if len(existing) == 32:
-            return existing
-    except OSError:
-        # Read-only FS (e.g. ephemeral test env): keep the in-memory key.
-        pass
-    return sk
+    return load_or_create_private_bytes(path, lambda: secrets.token_bytes(32).hex().encode("ascii"), validate)
 
 
 _SK = _load_or_create_sk()

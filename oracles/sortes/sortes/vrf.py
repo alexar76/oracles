@@ -21,6 +21,8 @@ from __future__ import annotations
 import hashlib
 from typing import Tuple
 
+from ._signing_key_storage import compromised_public_key, reject_compromised_keypair
+
 # --- field & curve constants (edwards25519, RFC 8032 §5.1) -----------------
 P = 2**255 - 19  # field prime
 # group order of the base point B
@@ -197,6 +199,7 @@ def expand_sk(sk: bytes) -> Tuple[int, bytes, bytes]:
     """SK (32 bytes) -> (x scalar, truncated_hashed_sk, PK bytes)."""
     if len(sk) != 32:
         raise ValueError("secret key must be 32 bytes")
+    reject_compromised_keypair(sk)
     h = _sha512(sk)
     x = _clamp_scalar(h[0:32])
     truncated = h[32:64]
@@ -306,7 +309,9 @@ def validate_key(y: Point) -> bool:
 
 def verify(pk: bytes, alpha: bytes, pi: bytes) -> bytes | None:
     """ECVRF_verify (§5.3, with validate_key): return beta (64 bytes) iff pi is valid for
-    (PK, alpha), else None."""
+    (PK, alpha) and the key has not been publicly compromised, else None."""
+    if compromised_public_key(pk):
+        return None
     y = point_decode(pk)
     if y is None:
         return None

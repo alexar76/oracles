@@ -18,12 +18,16 @@ and the hub only accepts the 5-field form.
 from __future__ import annotations
 
 import base64
-import contextlib
 import hashlib
 import json
 import os
 from pathlib import Path
 from typing import Any
+
+from ._signing_key_storage import (
+    compromised_public_key, load_or_create_ed25519_keypair,
+    load_or_create_mldsa_keypair, validate_ed25519_keypair,
+)
 
 from oracle_platon.config import settings
 
@@ -51,6 +55,8 @@ _ED25519_SMALL_ORDER = frozenset(bytes.fromhex(h) for h in (
 
 
 def _strict_ed25519_key(raw: bytes) -> bytes:
+    if compromised_public_key(raw):
+        raise ValueError("compromised Ed25519 public key")
     if len(raw) == 32 and (raw[:31] + bytes([raw[31] & 0x7F])) in _ED25519_SMALL_ORDER:
         raise ValueError("small-order Ed25519 public key")
     return raw
@@ -61,23 +67,7 @@ def pqc_available() -> bool:
 
 
 def _ensure_keypair(path: Path) -> tuple[bytes, bytes]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    if path.exists():
-        raw = path.read_bytes()
-        if len(raw) == 64:
-            return raw[:32], raw[32:]
-        raise RuntimeError(f"Ed25519 key file {path} is corrupted (size={len(raw)})")
-
-    priv = Ed25519PrivateKey.generate()
-    pub = priv.public_key()
-    seed = priv.private_bytes_raw()
-    pub_bytes = pub.public_bytes_raw()
-    path.write_bytes(seed + pub_bytes)
-    with contextlib.suppress(OSError):
-        os.chmod(path, 0o600)
-    return seed, pub_bytes
+    return load_or_create_ed25519_keypair(path)
 
 
 def _seed_from_env() -> bytes | None:
@@ -92,16 +82,7 @@ def _seed_from_env() -> bytes | None:
 
 
 def _load_or_make_pq(path: Path) -> tuple[bytes, bytes]:
-    """Load or generate an ML-DSA-65 keypair (pk, sk), persisted hex-encoded."""
-    if path.exists():
-        pk_hex, sk_hex = path.read_text().split("\n")[:2]
-        return bytes.fromhex(pk_hex), bytes.fromhex(sk_hex)
-    pk, sk = _MLDSA.keygen()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{pk.hex()}\n{sk.hex()}\n")
-    with contextlib.suppress(OSError):
-        os.chmod(path, 0o600)
-    return pk, sk
+    return load_or_create_mldsa_keypair(path, _MLDSA)
 
 
 class Signer:
@@ -115,6 +96,7 @@ class Signer:
             self._pub_bytes = (
                 Ed25519PrivateKey.from_private_bytes(env_seed).public_key().public_bytes_raw()
             )
+            validate_ed25519_keypair(self._seed + self._pub_bytes)
         else:
             self._seed, self._pub_bytes = _ensure_keypair(self.key_path)
         self._public_key_b64 = base64.b64encode(self._pub_bytes).decode()
