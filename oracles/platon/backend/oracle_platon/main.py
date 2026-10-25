@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import os
 import time
 from collections import defaultdict, deque
@@ -11,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from starlette.requests import HTTPConnection
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -94,29 +96,74 @@ def _steer_token() -> str:
     return (os.environ.get("PLATON_STEER_TOKEN") or "").strip()
 
 
+def _from_local_proxy(peer: str) -> bool:
+    """Could the TCP peer be our own nginx (this host or its docker network)? Only then are
+    X-Real-IP / X-Forwarded-For the caller's: anyone reaching the port another way writes
+    them itself, a fresh LLM-steer budget per request."""
+    try:
+        addr = ipaddress.ip_address((peer or "").split("%")[0])
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private or addr.is_link_local
+
+
+def _key_from(headers, peer: str) -> str:
+    if _from_local_proxy(peer):
+        xri = (headers.get("x-real-ip") or "").strip()
+        if xri:
+            return xri
+        # RIGHT-most hop: nginx appends the real peer, the left entry is caller-typed. This
+        # keys the LLM-steer budget, so a forgeable key was an unbounded spend.
+        hops = [h.strip() for h in (headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+    return peer or "*"
+
+
 def _client_key(request: Request) -> str:
-    xri = (request.headers.get("x-real-ip") or "").strip()
-    if xri:
-        return xri
-    # RIGHT-most hop: nginx appends the real peer, the left entry is caller-typed. This
-    # keys the LLM-steer budget, so a forgeable key was an unbounded spend.
-    hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
-    if hops:
-        return hops[-1]
-    return request.client.host if request.client else "*"
+    return _key_from(request.headers, request.client.host if request.client else "")
 
 
 def _ws_client_key(ws: WebSocket) -> str:
-    xri = (ws.headers.get("x-real-ip") or "").strip()
-    if xri:
-        return xri
-    hops = [h.strip() for h in (ws.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
-    if hops:
-        return hops[-1]
-    return ws.client.host if ws.client else "*"
+    return _key_from(ws.headers, ws.client.host if ws.client else "")
 
 
-def _write_authorized(token: str | None) -> bool:
+_LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+_FORWARDING_HEADERS = ("x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host")
+
+
+def _host_is_loopback(hostport: str) -> bool:
+    """`localhost[:port]`, `127.0.0.1[:port]` or `[::1][:port]`, as a Host header or netloc."""
+    value = hostport.strip().lower()
+    if value.startswith("["):
+        host = value[1:value.find("]")] if "]" in value else ""
+    else:
+        host = value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+    return host in _LOOPBACK_NAMES
+
+
+def _local_caller(conn: HTTPConnection) -> bool:
+    """The machine's own user: a loopback packet with a loopback Host, no forwarding headers
+    (behind nginx on this host every caller's packet is from 127.0.0.1) and no Origin but a
+    loopback page (a site open in that user's browser can POST here too)."""
+    peer = conn.client.host if conn.client else ""
+    try:
+        if not ipaddress.ip_address(peer).is_loopback:
+            return False
+    except ValueError:
+        return False
+    if any(h in conn.headers for h in _FORWARDING_HEADERS):
+        return False
+    if not _host_is_loopback(conn.headers.get("host", "")):
+        return False
+    origin = conn.headers.get("origin")
+    if origin is None:
+        return True
+    scheme, _, rest = origin.strip().partition("://")
+    return scheme in ("http", "https") and _host_is_loopback(rest.split("/", 1)[0])
+
+
+def _write_authorized(token: str | None, conn: HTTPConnection) -> bool:
     """True when state-mutating writes are permitted for this request."""
     steer_token = _steer_token()
     if not steer_token:
@@ -134,7 +181,13 @@ def _write_authorized(token: str | None) -> bool:
         )
         if prod:
             return False
-        return True  # public demo — no token configured
+        # No token outside production: writes from this machine only. Any caller used to
+        # steer the world here, and the server binds 0.0.0.0 (the class of Vulnetix
+        # GCVE-110-PYPI-2026-018883, CWE-306). A public demo, where every visitor and the
+        # hub's platon.steer@v1 steer the world, says so with PLATON_PUBLIC_WRITES=1.
+        if (os.environ.get("PLATON_PUBLIC_WRITES") or "").strip().lower() in ("1", "true", "yes", "on"):
+            return True
+        return _local_caller(conn)
     return bool(token) and hmac.compare_digest(token, steer_token)
 
 
@@ -243,7 +296,7 @@ async def hub_status() -> dict[str, Any]:
 
 @app.post("/api/steer")
 async def steer(req: SteerRequest, request: Request) -> dict[str, Any]:
-    if not _write_authorized(request.headers.get("x-platon-token")):
+    if not _write_authorized(request.headers.get("x-platon-token"), request):
         raise HTTPException(status_code=401, detail="write token required")
     if not _steer_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="rate limited")
@@ -254,7 +307,7 @@ async def steer(req: SteerRequest, request: Request) -> dict[str, Any]:
 
 @app.post("/api/project")
 async def project(req: ProjectRequest, request: Request) -> dict[str, float]:
-    if not _write_authorized(request.headers.get("x-platon-token")):
+    if not _write_authorized(request.headers.get("x-platon-token"), request):
         raise HTTPException(status_code=401, detail="write token required")
     if not _project_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="rate limited")
@@ -300,8 +353,7 @@ async def beacon_feed(limit: int = 20) -> dict[str, Any]:
 async def beacon_checkpoint() -> dict[str, Any]:
     """Sign a commitment to the chain head; if an anchor webhook is configured,
     push it to that external transparency log (fire-and-forget)."""
-    from oracle_platon.aimarket import beacon
-    from oracle_platon.aimarket import utc_now_z
+    from oracle_platon.aimarket import beacon, utc_now_z
 
     cp = beacon.checkpoint(utc_now_z())
     if settings.beacon_anchor_webhook:
@@ -353,7 +405,7 @@ async def ai_market_manifest() -> dict[str, Any]:
 async def ai_market_invoke(req: InvokeRequest, request: Request) -> dict[str, Any]:
     if req.capability_id in _MUTATING_CAPABILITIES:
         # Same fail-closed write-lock as /api/steer and /api/project.
-        if not _write_authorized(request.headers.get("x-platon-token")):
+        if not _write_authorized(request.headers.get("x-platon-token"), request):
             raise HTTPException(status_code=401, detail="write token required")
         if not _steer_limiter.allow(_client_key(request)):
             raise HTTPException(status_code=429, detail="rate limited")
@@ -388,7 +440,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             msg_type = raw.get("type")
 
             if msg_type == "steer":
-                if not _write_authorized(raw.get("token")):
+                if not _write_authorized(raw.get("token"), ws):
                     await ws.send_json({"type": "error", "error": "write token required"})
                     continue
                 if not _steer_limiter.allow(key):
@@ -402,7 +454,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await ws.send_json({"type": "steer", "data": result})
 
             elif msg_type == "project":
-                if not _write_authorized(raw.get("token")):
+                if not _write_authorized(raw.get("token"), ws):
                     await ws.send_json({"type": "error", "error": "write token required"})
                     continue
                 if not _project_limiter.allow(key):

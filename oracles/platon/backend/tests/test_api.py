@@ -19,7 +19,7 @@ def isolated_engine(monkeypatch):
 @pytest.mark.asyncio
 async def test_health(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/api/health")
     assert resp.status_code == 200
     data = resp.json()
@@ -29,7 +29,7 @@ async def test_health(isolated_engine):
 @pytest.mark.asyncio
 async def test_state_telemetry(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/api/state")
     data = resp.json()
     assert "kappa" in data
@@ -41,7 +41,7 @@ async def test_state_telemetry(isolated_engine):
 @pytest.mark.asyncio
 async def test_steer(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
     assert resp.status_code == 200
     data = resp.json()
@@ -52,7 +52,7 @@ async def test_steer(isolated_engine):
 @pytest.mark.asyncio
 async def test_dream(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/api/dream?steps=20")
     data = resp.json()
     assert len(data["surrogate"]) == 20
@@ -62,7 +62,7 @@ async def test_dream(isolated_engine):
 @pytest.mark.asyncio
 async def test_well_known():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/.well-known/ai-market.json")
     data = resp.json()
     assert data["protocol_version"] == "v2"
@@ -75,7 +75,7 @@ async def test_well_known():
 @pytest.mark.asyncio
 async def test_manifest():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/ai-market/v2/manifest")
     data = resp.json()
     assert data["capabilities_count"] >= 6
@@ -88,7 +88,7 @@ async def test_manifest():
 @pytest.mark.asyncio
 async def test_invoke_state(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={"capability_id": "platon.state@v1", "input": {}},
@@ -101,7 +101,7 @@ async def test_invoke_state(isolated_engine):
 @pytest.mark.asyncio
 async def test_invoke_steer(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={
@@ -117,7 +117,7 @@ async def test_invoke_steer(isolated_engine):
 @pytest.mark.asyncio
 async def test_invoke_random_is_verifiable(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={
@@ -137,7 +137,7 @@ async def test_invoke_random_is_verifiable(isolated_engine):
 @pytest.mark.asyncio
 async def test_invoke_verify_random_capability(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         draw = await client.post(
             "/ai-market/v2/invoke",
             json={"capability_id": "platon.random@v1", "input": {"num_bytes": 8}},
@@ -162,7 +162,7 @@ async def test_invoke_verify_random_capability(isolated_engine):
 @pytest.mark.asyncio
 async def test_invoke_envelope_has_signed_receipt(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={"capability_id": "platon.state@v1", "input": {}},
@@ -184,7 +184,7 @@ async def test_invoke_beacon_chains(isolated_engine):
 
     beacon.rounds.clear()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         for i in range(3):
             await client.post(
                 "/ai-market/v2/invoke",
@@ -200,7 +200,7 @@ async def test_invoke_beacon_chains(isolated_engine):
 @pytest.mark.asyncio
 async def test_manifest_self_verifies_and_has_random(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.get("/ai-market/v2/manifest")
     data = resp.json()
     ids = {t["capability_id"] for t in data["tools"]}
@@ -214,7 +214,7 @@ async def test_metrics_are_measured_after_invokes(isolated_engine):
 
     metrics.reset()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         for _ in range(3):
             await client.post(
                 "/ai-market/v2/invoke",
@@ -237,7 +237,7 @@ async def test_pca_energy_in_range(isolated_engine):
 @pytest.mark.asyncio
 async def test_ask_returns_grounded_answer(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/api/ask", json={"question": "What is kappa right now?", "lang": "en"}
         )
@@ -253,7 +253,7 @@ async def test_ask_returns_grounded_answer(isolated_engine):
 @pytest.mark.asyncio
 async def test_ask_is_localized(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post("/api/ask", json={"question": "что это?", "lang": "ru"})
     assert resp.json()["lang"] == "ru"
 
@@ -261,7 +261,7 @@ async def test_ask_is_localized(isolated_engine):
 @pytest.mark.asyncio
 async def test_ask_capability_invoke(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={"capability_id": "platon.ask@v1", "input": {"question": "hi", "lang": "es"}},
@@ -279,7 +279,7 @@ async def test_ask_rate_limited(isolated_engine):
     _ask_limiter._buckets.clear()
     transport = ASGITransport(app=app)
     statuses = []
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         for _ in range(_ask_limiter.limit + 2):
             r = await client.post("/api/ask", json={"question": "q", "lang": "en"})
             statuses.append(r.status_code)
@@ -294,7 +294,7 @@ async def test_invoke_rate_limited(isolated_engine):
     _invoke_limiter._buckets.clear()
     transport = ASGITransport(app=app)
     statuses = []
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         for _ in range(_invoke_limiter.limit + 2):
             r = await client.post(
                 "/ai-market/v2/invoke",
@@ -312,7 +312,7 @@ async def test_dream_rate_limited(isolated_engine):
     _dream_limiter._buckets.clear()
     transport = ASGITransport(app=app)
     statuses = []
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         for _ in range(_dream_limiter.limit + 2):
             r = await client.get("/api/dream?steps=12")
             statuses.append(r.status_code)
@@ -323,7 +323,7 @@ async def test_dream_rate_limited(isolated_engine):
 @pytest.mark.asyncio
 async def test_commit_reveal_via_invoke(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         c = await client.post(
             "/ai-market/v2/invoke", json={"capability_id": "platon.commit@v1", "input": {}}
         )
@@ -341,7 +341,7 @@ async def test_commit_reveal_via_invoke(isolated_engine):
 @pytest.mark.asyncio
 async def test_invoke_unknown_capability():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         resp = await client.post(
             "/ai-market/v2/invoke",
             json={"capability_id": "platon.nope@v1", "input": {}},
@@ -353,7 +353,7 @@ async def test_invoke_unknown_capability():
 @pytest.mark.asyncio
 async def test_invoke_logs_agent_activity(isolated_engine):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         await client.post(
             "/ai-market/v2/invoke",
             json={
@@ -367,3 +367,68 @@ async def test_invoke_logs_agent_activity(isolated_engine):
     assert len(invokes) >= 1
     assert invokes[0]["payload"]["capability_id"] == "platon.steer@v1"
     assert invokes[0]["payload"]["source"] == "aimarket-agent"
+
+
+# Without PLATON_STEER_TOKEN the steer/project writes are this machine's own, not anybody's
+# who can reach the port (the server binds 0.0.0.0).
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url, headers",
+    [
+        ("http://platon.example", {}),  # a rebinding name, or any Host but a loopback one
+        ("http://localhost", {"X-Forwarded-For": "93.184.216.34"}),  # relayed by a local proxy
+        ("http://localhost", {"X-Real-IP": "93.184.216.34"}),
+        ("http://localhost", {"Origin": "https://evil.example"}),  # a page in the user's browser
+        ("http://localhost", {"Origin": "null"}),
+    ],
+)
+async def test_tokenless_steer_refused_unless_local(isolated_engine, monkeypatch, base_url, headers):
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url=base_url, headers=headers) as client:
+        resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_tokenless_steer_refused_from_another_host(isolated_engine, monkeypatch):
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    transport = ASGITransport(app=app, client=("93.184.216.34", 40000))
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
+        resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_tokenless_steer_from_a_local_page(isolated_engine, monkeypatch):
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://127.0.0.1:9450", headers={"Origin": "http://localhost:5173"}
+    ) as client:
+        resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_token_opens_steer_to_any_caller(isolated_engine, monkeypatch):
+    monkeypatch.setenv("PLATON_STEER_TOKEN", "s3cret")
+    transport = ASGITransport(app=app, client=("93.184.216.34", 40000))
+    async with AsyncClient(transport=transport, base_url="http://platon.example") as client:
+        bad = await client.post("/api/steer", json={"prompt": "x"}, headers={"X-Platon-Token": "nope"})
+        good = await client.post("/api/steer", json={"prompt": "x"}, headers={"X-Platon-Token": "s3cret"})
+    assert bad.status_code == 401
+    assert good.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_public_demo_opens_tokenless_writes_on_purpose(isolated_engine, monkeypatch):
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    monkeypatch.setenv("PLATON_PUBLIC_WRITES", "1")
+    transport = ASGITransport(app=app, client=("172.18.0.5", 40000))  # the frontend's nginx
+    async with AsyncClient(transport=transport, base_url="http://platon.example",
+                           headers={"X-Forwarded-For": "93.184.216.34"}) as client:
+        resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
+    assert resp.status_code == 200

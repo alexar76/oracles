@@ -13,6 +13,8 @@ services:
     environment:
       PLATON_HOST: "0.0.0.0"
       PLATON_PORT: "9200"
+      # The public demo: visitors and the hub steer the world without a token (no PLATON_STEER_TOKEN).
+      PLATON_PUBLIC_WRITES: ${PLATON_PUBLIC_WRITES:-1}
       PLATON_PUBLIC_URL: ${PLATON_PUBLIC_URL:-http://oracles.modelmarket.dev}
       PLATON_SIGNING_KEY_PATH: /data/platon_signing_key
       PLATON_ORACLE_PROVIDER: ${PLATON_ORACLE_PROVIDER:-auto}

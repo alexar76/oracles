@@ -24,6 +24,20 @@ services:
       # dedicated volume below; a container rebuild must never rotate a pinned key.
       ORACLE_PQC: ${ORACLE_PQC:-1}
       # ORACLE_SIGNING_SEED_B64: "<from KMS>" # inject the key, never on disk
+      # The price gate (core/oracle_core/price_gate.py): priced capabilities answer only a call a
+      # hub in ORACLE_TRUSTED_HUBS ("url=ed25519 key,…") signed, or 402. Empty leaves it off, as
+      # before. ORACLE_PRICE_GATE=report logs what it would refuse first. Values in ./.env.
+      ORACLE_TRUSTED_HUBS: ${ORACLE_TRUSTED_HUBS:-}
+      ORACLE_PRICE_GATE: ${ORACLE_PRICE_GATE:-}
+      ORACLE_HUB_AUDIENCES: ${ORACLE_HUB_AUDIENCES:-}
+      # The call log (core/oracle_core/calls.py): every invoke written down, SQLite in the data
+      # volume unless ORACLE_DATABASE_URL names Postgres; read at /ops/v1/* with ORACLE_OPS_TOKEN
+      # (the routes answer 503 without one).
+      ORACLE_CALLS: ${ORACLE_CALLS:-1}
+      ORACLE_DATA_DIR: /app/data
+      ORACLE_DATABASE_URL: ${ORACLE_DATABASE_URL:-}
+      ORACLE_OPS_TOKEN: ${ORACLE_OPS_TOKEN:-}
+      ORACLE_CALLS_RETENTION_DAYS: ${ORACLE_CALLS_RETENTION_DAYS:-90}
     ports:
       # Loopback only — published through nginx /chronos/ (TLS + per-IP limit),
       # never raw on 0.0.0.0. A 0.0.0.0 bind would insert a Docker DNAT rule that
@@ -54,6 +68,20 @@ services:
       # oracle_family_data (`…_mldsa`). Phase-2 only — do not set
       # ORACLE_PQC_REQUIRE=1 fleet-wide until every signer emits pq_*.
       ORACLE_PQC: ${ORACLE_PQC:-1}
+      # The price gate (core/oracle_core/price_gate.py): priced capabilities answer only a call a
+      # hub in ORACLE_TRUSTED_HUBS ("url=ed25519 key,…") signed, or 402. Empty leaves it off, as
+      # before. ORACLE_PRICE_GATE=report logs what it would refuse first. Values in ./.env.
+      ORACLE_TRUSTED_HUBS: ${ORACLE_TRUSTED_HUBS:-}
+      ORACLE_PRICE_GATE: ${ORACLE_PRICE_GATE:-}
+      ORACLE_HUB_AUDIENCES: ${ORACLE_HUB_AUDIENCES:-}
+      # The call log (core/oracle_core/calls.py): every invoke written down, SQLite in the data
+      # volume unless ORACLE_DATABASE_URL names Postgres; read at /ops/v1/* with ORACLE_OPS_TOKEN
+      # (the routes answer 503 without one).
+      ORACLE_CALLS: ${ORACLE_CALLS:-1}
+      ORACLE_DATA_DIR: /app/data
+      ORACLE_DATABASE_URL: ${ORACLE_DATABASE_URL:-}
+      ORACLE_OPS_TOKEN: ${ORACLE_OPS_TOKEN:-}
+      ORACLE_CALLS_RETENTION_DAYS: ${ORACLE_CALLS_RETENTION_DAYS:-90}
     ports:
       # Loopback only — published via nginx `location /family/` (TLS + per-IP limit).
       - "127.0.0.1:9400:9400"
