@@ -5,7 +5,7 @@
 # was unclaimed, which is not safe but claimable: anyone taking it makes
 # `pip install sortes-oracle` fetch their code into a namespace this repo imports.
 name = "aimarket-oracle-sortes"
-version = "0.1.1"
+version = "0.1.2"
 description = "Sortes — true ECVRF (RFC 9381) verifiable-randomness oracle on oracle-core"
 # Both fields are required to publish, not cosmetic: `scripts/publish_pypi.sh` runs
 # `twine check --strict`, which fails a distribution whose `long_description` is empty, so

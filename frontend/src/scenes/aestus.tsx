@@ -248,7 +248,7 @@ export default function Scene() {
       {Array.from({ length: SHELLS }).map((_, i) => (
         <mesh
           key={i}
-          ref={(m) => (shellRefs.current[i] = m)}
+          ref={(m) => { shellRefs.current[i] = m; }}
         >
           <icosahedronGeometry args={[shellRadius(i), 1]} />
           <meshStandardMaterial
@@ -272,7 +272,7 @@ export default function Scene() {
       {Array.from({ length: WORMS }).map((_, w) => (
         <Instances
           key={w}
-          ref={(m) => (wormRefs.current[w] = m as any)}
+          ref={(m) => { wormRefs.current[w] = m as any; }}
           limit={WORM_BEADS}
           range={WORM_BEADS}
         >

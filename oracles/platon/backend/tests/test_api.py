@@ -1,3 +1,6 @@
+import os
+import sys
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -432,3 +435,40 @@ async def test_a_public_demo_opens_tokenless_writes_on_purpose(isolated_engine, 
                            headers={"X-Forwarded-For": "93.184.216.34"}) as client:
         resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
     assert resp.status_code == 200
+
+
+_TABLE_HEADER = ("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt"
+                 "   uid  timeout inode\n")
+
+
+def _socket_table(tmp_path, caller: str, server: str, uid):
+    """A /proc/net/tcp holding the server's end of the connection (ours) and the caller's end
+    owned by `uid`, or no caller's end when uid is None. Endpoints in the kernel's format."""
+    row = "   {n}: {a} {b} 01 00000000:00000000 00:00000000 00000000  {u}        0 {n}00 1 0 20 4 30 10 -1\n"
+    lines = [_TABLE_HEADER, row.format(n=1, a=server, b=caller, u=os.geteuid())]
+    if uid is not None:
+        lines.append(row.format(n=2, a=caller, b=server, u=uid))
+    path = tmp_path / "tcp"
+    path.write_text("".join(lines))
+    return (str(path),)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not hasattr(os, "geteuid") or sys.byteorder != "little", reason="POSIX table")
+@pytest.mark.parametrize("owner,want", [("self", 200), ("other", 401), ("absent", 401)])
+async def test_tokenless_steer_refuses_a_proxy_running_as_another_user(isolated_engine, monkeypatch,
+                                                                       tmp_path, owner, want):
+    # nginx's default proxy_pass on this host sends a loopback Host and no forwarding header,
+    # so only the owner of the caller's socket tells its workers from a local client.
+    import oracle_platon.main as main_mod
+
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    monkeypatch.delenv("PLATON_PUBLIC_WRITES", raising=False)
+    uid = {"self": os.geteuid(), "other": os.geteuid() + 1, "absent": None}[owner]
+    # 127.0.0.1:40000 -> 127.0.0.1:9450
+    monkeypatch.setattr(main_mod, "_PROC_NET_TCP",
+                        _socket_table(tmp_path, "0100007F:9C40", "0100007F:24EA", uid))
+    transport = ASGITransport(app=app, client=("127.0.0.1", 40000))
+    async with AsyncClient(transport=transport, base_url="http://127.0.0.1:9450") as client:
+        resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
+    assert resp.status_code == want

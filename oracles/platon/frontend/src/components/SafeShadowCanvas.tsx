@@ -12,7 +12,7 @@ export function SafeShadowCanvas({
   agentInvokes?: import("../lib/types").AgentInvoke[];
   dreamPreview?: import("../lib/types").DreamPreview | null;
 }) {
-  const [mode, setMode] = useState<"webgl" | "fallback">("webgl");
+  const [mode] = useState<"webgl" | "fallback">("webgl");
 
   const badge = (
     <div
