@@ -83,10 +83,12 @@ _project_limiter = _RateLimiter(limit=60, window_s=60.0)
 # as /api/steer, /api/project and /ws; every other capability is read-only.
 _MUTATING_CAPABILITIES = frozenset({"platon.steer@v1", "platon.project@v1"})
 
-# Optional write-gate. The cave is a public, anonymous demo by design, so this is
-# OFF by default (fail-open). Set PLATON_STEER_TOKEN to require a shared secret on
-# every state-mutating call (HTTP header ``X-Platon-Token`` / WS message ``token``)
-# without changing the read-only surface.
+# Write-gate on every state-mutating call; the read-only surface is unchanged.
+# With PLATON_STEER_TOKEN set, a call needs that shared secret (HTTP header
+# ``X-Platon-Token`` / WS message ``token``). Without it, production refuses every
+# write and any other environment takes writes from this machine only (see
+# _write_authorized). Up to 0.1.3 a keyless server took writes from anyone. A public
+# demo, where every visitor steers, says so with PLATON_PUBLIC_WRITES=1.
 def _steer_token() -> str:
     """Read per request, not once at import.
 
@@ -232,9 +234,8 @@ def _write_authorized(token: str | None, conn: HTTPConnection) -> bool:
     steer_token = _steer_token()
     if not steer_token:
         # Fail-closed in production: refuse writes when no steer token is
-        # configured. In dev/demo the entrypoint sets PLATON_STEER_TOKEN; a
-        # missing token in production must not leave mutating endpoints
-        # (incl. the /ai-market invoke steer/project capabilities) open.
+        # configured. A missing token in production must not leave mutating
+        # endpoints (incl. the /ai-market invoke steer/project capabilities) open.
         import os as _os
 
         env = (_os.environ.get("AIFACTORY_ENV") or "").strip().lower()
