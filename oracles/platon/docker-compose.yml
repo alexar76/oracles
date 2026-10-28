@@ -13,6 +13,10 @@ services:
     environment:
       PLATON_HOST: "0.0.0.0"
       PLATON_PORT: "9200"
+      # Whose X-Real-IP / X-Forwarded-For count: loopback and the frontend's nginx, which passes the
+      # host nginx's headers on. Not every private address: a neighbour on the network would name
+      # itself (Vulnetix GCVE-110-VULN-PYPI-2026-000636).
+      PLATON_TRUSTED_PROXIES: ${PLATON_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,platon-frontend}
       # The public demo: visitors and the hub steer the world without a token (no PLATON_STEER_TOKEN).
       PLATON_PUBLIC_WRITES: ${PLATON_PUBLIC_WRITES:-1}
       PLATON_PUBLIC_URL: ${PLATON_PUBLIC_URL:-http://oracles.modelmarket.dev}

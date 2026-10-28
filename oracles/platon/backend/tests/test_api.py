@@ -10,6 +10,9 @@ from oracle_platon.signing import Signer
 from oracle_platon.simulation import SimulationEngine
 
 
+pytestmark = pytest.mark.usefixtures("local_http_opt_in")
+
+
 @pytest.fixture
 def isolated_engine(monkeypatch):
     eng = SimulationEngine()
@@ -455,20 +458,89 @@ def _socket_table(tmp_path, caller: str, server: str, uid):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not hasattr(os, "geteuid") or sys.byteorder != "little", reason="POSIX table")
-@pytest.mark.parametrize("owner,want", [("self", 200), ("other", 401), ("absent", 401)])
-async def test_tokenless_steer_refuses_a_proxy_running_as_another_user(isolated_engine, monkeypatch,
-                                                                       tmp_path, owner, want):
-    # nginx's default proxy_pass on this host sends a loopback Host and no forwarding header,
-    # so only the owner of the caller's socket tells its workers from a local client.
+@pytest.mark.parametrize("owner,opt_in,want", [
+    ("self", False, 401), ("self", True, 200), ("other", True, 401), ("absent", True, 401),
+])
+async def test_tokenless_steer_requires_explicit_tcp_trust_and_matching_owner(
+    isolated_engine, monkeypatch, tmp_path, owner, opt_in, want
+):
+    # A same-user worker may relay remote requests with no listener of its own.
+    # Socket ownership alone must never grant keyless access by default.
     import oracle_platon.main as main_mod
 
     monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
     monkeypatch.delenv("PLATON_PUBLIC_WRITES", raising=False)
+    monkeypatch.setenv("PLATON_LOCAL_RELAY", "1" if opt_in else "0")
     uid = {"self": os.geteuid(), "other": os.geteuid() + 1, "absent": None}[owner]
-    # 127.0.0.1:40000 -> 127.0.0.1:9450
     monkeypatch.setattr(main_mod, "_PROC_NET_TCP",
                         _socket_table(tmp_path, "0100007F:9C40", "0100007F:24EA", uid))
     transport = ASGITransport(app=app, client=("127.0.0.1", 40000))
     async with AsyncClient(transport=transport, base_url="http://127.0.0.1:9450") as client:
         resp = await client.post("/api/steer", json={"prompt": "chimera at 0.73"})
     assert resp.status_code == want
+
+
+async def test_tokenless_steer_refused_where_the_socket_owner_cannot_be_read(isolated_engine, monkeypatch):
+    # Vulnetix GCVE-110-VULN-PYPI-2026-000643: without /proc/net/tcp (macOS, Windows) every
+    # loopback caller passed. It is refused now, unless the operator opts in.
+    import oracle_platon.main as main_mod
+
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    monkeypatch.delenv("PLATON_PUBLIC_WRITES", raising=False)
+    monkeypatch.setattr(main_mod, "_PROC_NET_TCP", ())
+    monkeypatch.delenv("PLATON_LOCAL_UNVERIFIED", raising=False)
+    monkeypatch.delenv("PLATON_LOCAL_RELAY", raising=False)
+    transport = ASGITransport(app=app, client=("127.0.0.1", 40000))
+    async with AsyncClient(transport=transport, base_url="http://127.0.0.1:9450") as client:
+        async def steer_status():
+            return (await client.post("/api/steer", json={"prompt": "chimera at 0.73"})).status_code
+        assert await steer_status() == 401
+        monkeypatch.setenv("PLATON_LOCAL_UNVERIFIED", "1")
+        assert await steer_status() == 401
+        monkeypatch.setenv("PLATON_LOCAL_RELAY", "1")
+        monkeypatch.delenv("PLATON_LOCAL_UNVERIFIED")
+        assert await steer_status() == 401
+        monkeypatch.setenv("PLATON_LOCAL_UNVERIFIED", "1")
+        assert await steer_status() == 200
+
+
+@pytest.mark.asyncio
+async def test_production_steer_requires_token_despite_local_opt_ins(isolated_engine, monkeypatch):
+    monkeypatch.setenv("AIFACTORY_PROD", "1")
+    monkeypatch.setenv("PLATON_LOCAL_RELAY", "1")
+    monkeypatch.setenv("PLATON_LOCAL_UNVERIFIED", "1")
+    monkeypatch.setenv("PLATON_PUBLIC_WRITES", "1")
+    monkeypatch.delenv("PLATON_STEER_TOKEN", raising=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
+        assert (await client.post("/api/steer", json={"prompt": "x"})).status_code == 401
+        monkeypatch.setenv("PLATON_STEER_TOKEN", "test-operator-secret")
+        assert (await client.post("/api/steer", json={"prompt": "x"})).status_code == 401
+        response = await client.post("/api/steer", json={"prompt": "x"},
+                                     headers={"X-Platon-Token": "test-operator-secret"})
+        assert response.status_code == 200
+
+
+def test_trusted_proxies_are_loopback_unless_named(monkeypatch, tmp_path):
+    # Vulnetix GCVE-110-VULN-PYPI-2026-000636: X-Real-IP / X-Forwarded-For were taken from any
+    # private peer, so a neighbour on the same docker network or LAN named its own address.
+    import ipaddress
+    import oracle_platon.main as trust
+
+    monkeypatch.delenv("PLATON_TRUSTED_PROXIES", raising=False)
+    assert trust._peer_is_trusted_proxy("127.0.0.1") and trust._peer_is_trusted_proxy("::1")
+    for neighbour in ("172.18.0.7", "10.0.0.5", "192.168.1.20", "fe80::1", "not-an-address", ""):
+        assert not trust._peer_is_trusted_proxy(neighbour), neighbour
+    monkeypatch.setenv("PLATON_TRUSTED_PROXIES", "10.1.0.0/16, 172.18.0.9")
+    assert trust._peer_is_trusted_proxy("10.1.2.3") and trust._peer_is_trusted_proxy("172.18.0.9")
+    assert not trust._peer_is_trusted_proxy("127.0.0.1")  # the list replaces the default
+    route = tmp_path / "route"
+    gateway_hex = "010012AC" if sys.byteorder == "little" else "AC120001"  # 172.18.0.1
+    route.write_text("Iface\tDestination\tGateway\tFlags\n"
+                     "eth0\t00000000\t" + gateway_hex + "\t0003\n")
+    monkeypatch.setattr(trust, "_PROC_NET_ROUTE", str(route))
+    monkeypatch.setenv("PLATON_TRUSTED_PROXIES", "gateway")
+    assert trust._peer_is_trusted_proxy("172.18.0.1") and not trust._peer_is_trusted_proxy("172.18.0.2")
+    named = {"frontend": (ipaddress.ip_address("172.18.0.5"),)}
+    monkeypatch.setattr(trust, "_proxy_name_addresses", lambda name: named.get(name, ()))
+    monkeypatch.setenv("PLATON_TRUSTED_PROXIES", "127.0.0.1, frontend")
+    assert trust._peer_is_trusted_proxy("172.18.0.5") and not trust._peer_is_trusted_proxy("172.18.0.6")

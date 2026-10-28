@@ -18,6 +18,9 @@ services:
       dockerfile: oracles/chronos/Dockerfile
     environment:
       CHRONOS_PORT: "9300"
+      # Whose X-Real-IP / X-Forwarded-For count: the host's nginx, which reaches the published port
+      # through the docker gateway. Not every private address (Vulnetix GCVE-110-VULN-PYPI-2026-000637).
+      ORACLE_TRUSTED_PROXIES: ${ORACLE_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,gateway}
       # Advertised behind the TLS edge (nginx `location /chronos/`), not the raw port.
       CHRONOS_PUBLIC_URL: ${CHRONOS_PUBLIC_URL:-https://oracles.modelmarket.dev/chronos}
       # Hybrid ML-DSA-65 + Ed25519 (phase-2). Both identities persist in the
@@ -62,6 +65,8 @@ services:
       dockerfile: oracles/oracle-family/Dockerfile
     environment:
       ORACLE_FAMILY_PORT: "9400"
+      # Whose X-Real-IP / X-Forwarded-For count: the host's nginx, through the docker gateway.
+      ORACLE_TRUSTED_PROXIES: ${ORACLE_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,gateway}
       ORACLE_FAMILY_PUBLIC_URL: ${ORACLE_FAMILY_PUBLIC_URL:-https://oracles.modelmarket.dev/family}
       ORACLE_FAMILY_PLATON_URL: ${ORACLE_FAMILY_PLATON_URL:-http://platon-backend:9200}
       # Hybrid ML-DSA-65 + Ed25519. PQ key persists next to Ed25519 under

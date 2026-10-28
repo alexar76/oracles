@@ -119,6 +119,22 @@ Final federation is hub-pull: the **hub operator** sets `AIMARKET_ADMIN_TOKEN` a
 
 ---
 
+**Who can steer.** Reading is open. HTTP writes (steer, project, the hub's
+`platon.steer@v1`) require `PLATON_STEER_TOKEN` by default, including loopback.
+Production refuses writes without it. For an isolated development environment,
+`PLATON_LOCAL_RELAY=1` explicitly trusts keyless local TCP, including proxies and tunnels
+running as the server's user. Their socket must belong to that user; without the kernel's
+socket table (macOS/Windows), also set `PLATON_LOCAL_UNVERIFIED=1`. A known different owner
+or unmatched connection is refused even with these settings. Use a token when relays
+must authenticate callers. Since 0.1.6, process names and listeners are no longer used
+to guess whether a same-user connection is a relay.
+
+A deliberately public demo says so with `PLATON_PUBLIC_WRITES=1`, as
+[docker-compose.yml](docker-compose.yml) does; this does not bypass production or a
+configured token. Up to 0.1.3 a keyless server took writes from anyone.
+
+---
+
 ## Architecture
 
 ```

@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import ipaddress
 import os
+import socket
 import sys
 import time
 from collections import defaultdict, deque
@@ -99,19 +100,86 @@ def _steer_token() -> str:
     return (os.environ.get("PLATON_STEER_TOKEN") or "").strip()
 
 
-def _from_local_proxy(peer: str) -> bool:
-    """Could the TCP peer be our own nginx (this host or its docker network)? Only then are
-    X-Real-IP / X-Forwarded-For the caller's: anyone reaching the port another way writes
-    them itself, a fresh LLM-steer budget per request."""
+# Which TCP peers may name the caller through X-Real-IP / X-Forwarded-For. Loopback only by default:
+# trusting every private address let any neighbour on the same docker network or LAN send its own
+# (Vulnetix GCVE-110-VULN-PYPI-2026-000636). PLATON_TRUSTED_PROXIES is a comma list of addresses,
+# CIDRs, host names (a compose service such as the frontend's nginx, looked up again every minute)
+# and `gateway` (this container's default route: the host's nginx, when the port is published on the
+# host).
+_TRUSTED_PROXIES_DEFAULT = "127.0.0.1/32,::1/128"
+_PROXY_NAME_TTL = 60.0
+_PROC_NET_ROUTE = "/proc/net/route"
+_proxy_names: dict[str, tuple[float, tuple]] = {}
+
+
+def _default_gateway() -> str | None:
+    """The IPv4 default route's gateway, from /proc/net/route (Linux), or None."""
+    try:
+        with open(_PROC_NET_ROUTE, encoding="ascii", errors="replace") as fh:
+            next(fh, None)  # the header line
+            for line in fh:
+                f = line.split()
+                if len(f) > 2 and f[1] == "00000000":
+                    raw = bytes.fromhex(f[2])
+                    return str(ipaddress.IPv4Address(raw[::-1] if sys.byteorder == "little" else raw))
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _proxy_name_addresses(name: str) -> tuple:
+    now = time.monotonic()
+    hit = _proxy_names.get(name)
+    if hit and now - hit[0] < _PROXY_NAME_TTL:
+        return hit[1]
+    try:
+        found = {ipaddress.ip_address(info[4][0].split("%")[0])
+                 for info in socket.getaddrinfo(name, None, proto=socket.IPPROTO_TCP)}
+    except (OSError, ValueError):
+        found = set()
+    addrs = tuple(sorted(found, key=str))
+    _proxy_names[name] = (now, addrs)
+    return addrs
+
+
+def _peer_is_trusted_proxy(peer: str) -> bool:
+    """Is the TCP peer one of PLATON_TRUSTED_PROXIES?"""
     try:
         addr = ipaddress.ip_address((peer or "").split("%")[0])
     except ValueError:
         return False
-    return addr.is_loopback or addr.is_private or addr.is_link_local
+    if addr.version == 6 and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    raw = os.environ.get("PLATON_TRUSTED_PROXIES")
+    for entry in (_TRUSTED_PROXIES_DEFAULT if raw is None else raw).split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if entry == "gateway":
+            gateway = _default_gateway()
+            if gateway and addr == ipaddress.ip_address(gateway):
+                return True
+            continue
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+            continue
+        except ValueError:
+            pass
+        if addr in _proxy_name_addresses(entry):
+            return True
+    return False
+
+
+def _from_trusted_proxy(peer: str) -> bool:
+    """Is the TCP peer our own nginx (PLATON_TRUSTED_PROXIES)? Only then are X-Real-IP /
+    X-Forwarded-For the caller's: anyone reaching the port another way writes them itself, a fresh
+    LLM-steer budget per request."""
+    return _peer_is_trusted_proxy(peer)
 
 
 def _key_from(headers, peer: str) -> str:
-    if _from_local_proxy(peer):
+    if _from_trusted_proxy(peer):
         xri = (headers.get("x-real-ip") or "").strip()
         if xri:
             return xri
@@ -151,18 +219,25 @@ def _proc_endpoint(field: str) -> tuple[str, int]:
     return str(addr), int(hexport, 16)
 
 
-def _caller_is_this_user(conn: HTTPConnection) -> bool:
-    """The caller's socket belongs to the user this server runs as.
+def _flag(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
 
-    A reverse proxy on this machine connects over loopback too, and nginx's default proxy_pass
-    sends the upstream's own Host (127.0.0.1:port) and no forwarding header, so nothing in the
-    request tells it from a local client (Vulnetix, on GCVE-110-PYPI-2026-018883). Its workers
-    run as their own user, and on Linux the kernel records which user owns each socket. A proxy
-    running as this same user, or a system without the table (macOS, Windows), still needs a key
-    to be told apart. A connection the table does not show is refused."""
+
+def _caller_is_this_user(conn: HTTPConnection) -> bool:
+    """Allow explicitly trusted local TCP callers whose socket belongs to this user.
+
+    TCP ownership cannot distinguish a direct client from an arbitrary same-user relay:
+    a worker may hold no listener and its program name proves nothing. Therefore keyless
+    TCP is refused unless PLATON_LOCAL_RELAY=1 explicitly trusts that boundary
+    (GCVE-110-VULN-PYPI-2026-000643). Without a socket table, the additional
+    PLATON_LOCAL_UNVERIFIED=1 opt-in is required. A known different owner or an
+    unmatched connection is always refused. Prefer a configured token to either opt-in.
+    """
+    if not _flag("PLATON_LOCAL_RELAY"):
+        return False
     tables = [p for p in _PROC_NET_TCP if os.path.exists(p)]
     if not tables:
-        return True
+        return _flag("PLATON_LOCAL_UNVERIFIED")
     client = conn.client
     if not client:
         return False
@@ -180,14 +255,16 @@ def _caller_is_this_user(conn: HTTPConnection) -> bool:
                 next(fh, None)  # the header line
                 for line in fh:
                     f = line.split()
-                    if len(f) < 8 or f[3] != "01":  # 01 = ESTABLISHED
+                    if len(f) < 10 or f[3] != "01":  # 01 = ESTABLISHED
                         continue
                     try:
                         if _proc_endpoint(f[1]) != want:
                             continue
                         if server_port is not None and _proc_endpoint(f[2])[1] != int(server_port):
                             continue
-                        return int(f[7]) == os.geteuid()
+                        if int(f[7]) != os.geteuid():
+                            return False
+                        return True
                     except ValueError:
                         continue
         except OSError:
@@ -206,11 +283,9 @@ def _host_is_loopback(hostport: str) -> bool:
 
 
 def _local_caller(conn: HTTPConnection) -> bool:
-    """The machine's own user: a loopback packet with a loopback Host, no forwarding headers
-    (behind nginx on this host every caller's packet is from 127.0.0.1), no Origin but a
-    loopback page (a site open in that user's browser can POST here too) and, on Linux, a
-    socket owned by this server's user (nginx's default proxy_pass sends a loopback Host and
-    no forwarding header; its workers run as their own user)."""
+    """Explicitly trusted keyless loopback TCP, with local Host/Origin and no
+    forwarding headers. Socket ownership still must match, unless separately opted out.
+    """
     peer = conn.client.host if conn.client else ""
     try:
         if not ipaddress.ip_address(peer).is_loopback:
@@ -246,7 +321,7 @@ def _write_authorized(token: str | None, conn: HTTPConnection) -> bool:
         )
         if prod:
             return False
-        # No token outside production: writes from this machine only. Any caller used to
+        # No token outside production: only explicitly trusted local TCP. Any caller used to
         # steer the world here, and the server binds 0.0.0.0 (the class of Vulnetix
         # GCVE-110-PYPI-2026-018883, CWE-306). A public demo, where every visitor and the
         # hub's platon.steer@v1 steer the world, says so with PLATON_PUBLIC_WRITES=1.
